@@ -1,0 +1,7 @@
+*egg-info
+.aider*
+launch.sh
+.env
+.env.leave
+logs/
+__pycache__

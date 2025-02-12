@@ -1,0 +1,1872 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Voice Chat</title>
+    <!-- Include marked.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        html, body { /* Ensure full height */
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #0a0a0a;
+            color: #ffffff;
+            padding: 20px; /* Keep padding */
+            box-sizing: border-box; /* Include padding in height */
+            height: 100%; /* Use full calculated height */
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            height: 100%; /* Use full parent height */
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center; /* Align items vertically */
+            margin-bottom: 15px; /* Reduced margin */
+            padding: 0 10px;
+            gap: 15px; /* Adjusted gap */
+            width: 100%; /* Ensure header takes full width */
+            box-sizing: border-box; /* Include padding in width calculation */
+            flex-wrap: wrap; /* Allow controls to wrap on smaller screens */
+        }
+
+        .header .title-container { /* New container for title and version */
+            display: flex;
+            align-items: baseline; /* Align baseline of title and version */
+            gap: 8px; /* Space between title and version */
+            flex-grow: 1; /* Allow title container to take available space */
+            margin-right: 10px; /* Add some space before controls */
+            white-space: nowrap; /* Prevent wrapping within this container */
+        }
+
+        .header h2 { /* Changed from h1 to h2 */
+            margin: 0;
+            /* Removed flex-grow and margin-right from h2 */
+        }
+
+        .header .app-version { /* Style for the version span */
+            font-size: 0.7em; /* Smaller font size */
+            color: #888; /* Grey color */
+            font-weight: normal;
+        }
+
+
+        .header .controls-container {
+            display: flex;
+            align-items: center;
+            gap: 10px; /* Adjusted gap */
+            flex-shrink: 0; /* Prevent controls container from shrinking */
+        }
+
+        .header #start-button,
+        .header #mute-button {
+            margin: 0;
+            white-space: nowrap;
+        }
+
+        .header #mute-area {
+            display: flex;
+            align-items: center;
+            gap: 10px; /* Space between pulse and mute button */
+        }
+
+        /* Removed Model toggle styles */
+
+        /* Styles for select dropdowns (Model & Voice) */
+        .select-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .styled-select {
+            background-color: #222;
+            color: #fff;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-family: inherit;
+            font-size: 14px; /* Slightly smaller */
+            cursor: pointer;
+            min-width: 120px; /* Ensure minimum width */
+            height: 46px; /* Match button height */
+            box-sizing: border-box;
+            appearance: none; /* Remove default arrow */
+            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E');
+            background-repeat: no-repeat;
+            background-position: right 10px top 50%;
+            background-size: .65em auto;
+            padding-right: 30px; /* Space for arrow */
+            transition: border-color 0.3s, opacity 0.3s; /* Added opacity transition */
+        }
+
+        .styled-select:hover {
+            border-color: #666;
+        }
+
+        .styled-select:focus {
+            outline: none;
+            border-color: #888;
+        }
+
+        .styled-select:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background-color: #333;
+            border-color: #333;
+        }
+        /* End select dropdown styles */
+
+
+        .chat-container {
+            border: 1px solid #333;
+            padding: 20px;
+            /* height: 90%; Removed fixed height */
+            flex-grow: 1; /* Added: Allow chat container to fill remaining space */
+            min-height: 0; /* Added: Necessary for flex-grow in some browsers */
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            width: 100%; /* Ensure full width */
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding: 10px;
+            user-select: text; /* Allow text selection */
+        }
+
+        .message {
+            margin-bottom: 20px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 16px;
+            line-height: 1.5;
+            max-width: 70%;
+            clear: both;
+        }
+
+        .message.user {
+            background-color: #2c2c2c;
+            float: right;
+            border-bottom-right-radius: 2px;
+            border: 1px solid #404040;
+        }
+
+        .message.assistant {
+            background-color: #262626;
+            float: left;
+            border-bottom-left-radius: 2px;
+            border: 1px solid #333;
+        }
+
+        .message.system { /* Style for system messages */
+            background-color: #202020; /* Slightly different background */
+            float: left; /* Align like assistant */
+            border-bottom-left-radius: 2px;
+            border: 1px solid #383838; /* Slightly different border */
+            font-style: italic; /* Italicize system messages */
+            opacity: 0.8; /* Make slightly less prominent */
+        }
+
+        /* Markdown specific styles */
+        .message p { margin: 0.5em 0; } /* Add some space between paragraphs */
+        .message ul, .message ol { margin: 0.5em 0 0.5em 2em; padding: 0; } /* Indent lists */
+        .message li { margin-bottom: 0.2em; }
+        .message code { background-color: #333; padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; }
+        .message pre { background-color: #1e1e1e; padding: 1em; border-radius: 5px; overflow-x: auto; font-family: monospace; }
+        .message pre code { background-color: transparent; padding: 0; border-radius: 0; }
+        .message blockquote { border-left: 3px solid #555; padding-left: 1em; margin-left: 0; color: #ccc; }
+        .message h1, .message h2, .message h3, .message h4, .message h5, .message h6 { margin-top: 1em; margin-bottom: 0.5em; }
+
+        /* Compact Cost Display Styles */
+        .cost-display {
+            background-color: #1a1a1a; /* Slightly darker */
+            border: 1px solid #2a2a2a; /* Slightly darker border */
+            border-radius: 6px;
+            padding: 8px 15px; /* Reduced padding */
+            margin-bottom: 20px; /* Space below cost display */
+            font-size: 13px; /* Slightly smaller font */
+            display: flex;
+            justify-content: space-around; /* Even spacing */
+            align-items: center;
+            width: 100%; /* Ensure full width */
+            box-sizing: border-box; /* Include padding in width */
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            gap: 10px; /* Add gap for wrapped items */
+        }
+
+        .cost-item {
+            display: flex;
+            align-items: baseline; /* Align label and value */
+            gap: 5px; /* Space between label and value */
+        }
+
+        .cost-label {
+            font-size: 11px; /* Smaller label */
+            opacity: 0.6;
+        }
+
+        .cost-value {
+            font-weight: 500; /* Slightly less bold */
+        }
+
+        .total-cost .cost-label { /* Make total label slightly more prominent */
+             opacity: 0.8;
+        }
+        .total-cost .cost-value {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        /* End Compact Cost Display Styles */
+
+        /* Removed .controls CSS as the element is gone */
+
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 12px 24px;
+            background-color: transparent;
+            color: #ffffff;
+            border: 1px solid #ffffff;
+            font-family: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+            border-radius: 25px; /* Add rounded corners */
+            height: 46px; /* Standard height */
+            box-sizing: border-box;
+        }
+
+        button:hover {
+            border-width: 2px; /* Keep existing hover effect */
+            transform: scale(1.02);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+            border-width: 1px; /* Reset border width */
+        }
+
+
+        #audio-output {
+            display: none;
+        }
+
+        .icon-with-spinner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            min-width: 180px;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ffffff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .pulse-circle {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: #ffffff;
+            opacity: 0.2;
+            flex-shrink: 0;
+            transform: scale(var(--audio-level, 1));
+            transition: transform 0.1s ease;
+        }
+
+        /* Fix button layout */
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 12px 24px;
+            background-color: transparent;
+            color: #ffffff;
+            border: 1px solid #ffffff;
+            font-family: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+        }
+
+        .mute-toggle {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .mute-toggle svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Button styling now in header section */
+
+        /* Add styles for toast notifications */
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 16px 24px;
+            border-radius: 4px;
+            font-size: 14px;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            max-width: 90%;
+            text-align: center;
+        }
+
+        .toast.error {
+            background-color: #f44336;
+            color: white;
+        }
+
+        .toast.warning {
+            background-color: #ffd700;
+            color: black;
+        }
+
+        /* Helper class to visually hide labels but keep them accessible */
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+        /* End Voice Selection Styles */
+
+        /* Model selection styles */
+
+        /* Removed Custom Context Menu Styles */
+
+        /* Close Button Styles */
+        .close-button {
+            position: fixed; /* Position relative to the viewport */
+            top: 10px;
+            left: 10px;
+            width: 24px;
+            height: 24px;
+            background-color: rgba(100, 100, 100, 0.5); /* Semi-transparent grey */
+            color: #fff;
+            border: none;
+            border-radius: 0; /* Ensure it's square */
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: bold;
+            line-height: 1;
+            z-index: 1002; /* Ensure it's above context menu */
+            transition: background-color 0.2s;
+            padding: 0; /* Remove padding */
+            min-width: auto; /* Override min-width */
+            text-transform: none; /* Override text transform */
+            letter-spacing: normal; /* Override letter spacing */
+        }
+
+        .close-button:hover {
+            background-color: rgba(150, 150, 150, 0.7); /* Lighter grey on hover */
+            transform: none; /* Override hover transform */
+            box-shadow: none; /* Override hover shadow */
+            border-width: 0; /* Override hover border */
+        }
+        /* End Close Button Styles */
+
+        /* Status Indicator Styles */
+        .status-indicator {
+            display: flex; /* Use flex for alignment */
+            align-items: center; /* Vertically center items */
+            justify-content: center; /* Horizontally center items */
+            gap: 8px; /* Space between spinner and text */
+            padding: 8px 15px; /* Padding */
+            margin-bottom: 15px; /* Space below indicator */
+            font-size: 14px; /* Font size */
+            color: #aaa; /* Text color */
+            background-color: #1a1a1a; /* Background similar to cost display */
+            border: 1px solid #2a2a2a; /* Border similar to cost display */
+            border-radius: 6px; /* Rounded corners */
+            width: 100%; /* Full width */
+            box-sizing: border-box; /* Include padding in width */
+            min-height: 38px; /* Minimum height to prevent layout shifts */
+            opacity: 0; /* Hidden by default */
+            transition: opacity 0.3s ease-in-out; /* Smooth fade */
+            visibility: hidden; /* Ensure it doesn't take space when hidden */
+        }
+
+        .status-indicator.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .status-indicator .spinner {
+             /* Reuse existing spinner, adjust size if needed */
+             width: 16px;
+             height: 16px;
+             border-width: 2px; /* Match size */
+        }
+        /* End Status Indicator Styles */
+    </style>
+</head>
+
+<body>
+    <!-- Close Button -->
+    <button id="close-window-button" class="close-button" title="Close Application">&times;</button>
+    <!-- Add toast element after body opening tag -->
+    <div id="toast-notification" class="toast"></div> <!-- Renamed ID for clarity -->
+    <!-- Placeholder for system message from backend -->
+    <script id="system-message-data" type="application/json">__SYSTEM_MESSAGE_JSON__</script>
+    <!-- Placeholder for auto-start flag from backend -->
+    <script id="auto-start-data" type="application/json">__AUTO_START_FLAG__</script>
+    <div class="container">
+        <div class="header">
+            <div class="title-container"> <!-- Container for title and version -->
+                <h2>AI Voice Chat</h2>
+                <span class="app-version">v__APP_VERSION__</span> <!-- Version placeholder -->
+            </div>
+            <div class="controls-container">
+                <button id="start-button">Start</button>
+                <div id="mute-area" style="display: none;"> <!-- Initially hidden -->
+                    <div class="pulse-circle"></div>
+                    <button id="mute-button"></button> <!-- Icon/Text set by JS -->
+                </div>
+                <!-- Model Selection Dropdown -->
+                <div class="select-container">
+                    <label for="model-select" class="visually-hidden">Select Model:</label>
+                    <select id="model-select" class="styled-select">
+                        <!-- Options will be populated by JS -->
+                        <option value="">Loading Models...</option>
+                    </select>
+                </div>
+                <!-- End Model Selection Dropdown -->
+                <!-- Voice Selection Dropdown -->
+                <div class="select-container">
+                    <label for="voice-select" class="visually-hidden">Select Voice:</label>
+                    <select id="voice-select" class="styled-select">
+                        <!-- Options will be populated by JS -->
+                        <option value="">Loading Voices...</option>
+                    </select>
+                </div>
+                <!-- End Voice Selection Dropdown -->
+            </div>
+        </div>
+        <!-- Cost Display Moved Here -->
+        <div class="cost-display" id="cost-display">
+            <div class="cost-item">
+                <span class="cost-label">LLM Input:</span> <!-- Updated Label -->
+                <span class="cost-value" id="input-cost">$0.000000</span> <!-- Updated default format -->
+            </div>
+            <div class="cost-item">
+                <span class="cost-label">LLM Cached:</span> <!-- Updated Label -->
+                <span class="cost-value" id="cached-cost">$0.000000</span> <!-- Updated default format -->
+            </div>
+            <div class="cost-item">
+                <span class="cost-label">LLM Output:</span> <!-- Updated Label -->
+                <span class="cost-value" id="output-cost">$0.000000</span> <!-- Updated default format -->
+            </div>
+            <div class="cost-item"> <!-- Added TTS Cost Item -->
+                <span class="cost-label">TTS:</span>
+                <span class="cost-value" id="tts-cost">$0.000000</span>
+            </div>
+            <div class="cost-item total-cost">
+                <span class="cost-label">Total:</span>
+                <span class="cost-value" id="total-cost">$0.000000</span> <!-- Updated default format -->
+            </div>
+        </div>
+        <!-- End Cost Display -->
+
+        <!-- Status Indicator Added Here -->
+        <div class="status-indicator" id="status-indicator">
+            <div class="spinner" id="status-spinner" style="display: none;"></div>
+            <span id="status-text"></span>
+        </div>
+        <!-- End Status Indicator -->
+
+        <div class="chat-container">
+            <div class="chat-messages" id="chat-messages"></div>
+        </div>
+        <!-- Removed empty controls div -->
+    </div>
+    <audio id="audio-output"></audio>
+
+    <!-- Removed Custom Context Menu HTML -->
+
+    <!-- Removed extra closing divs and duplicate audio tag -->
+
+    <script>
+        let peerConnection;
+        let webrtc_id;
+        let isMuted = false;
+        // let isUsingMini = true; // Removed
+        let selectedModel = ''; // Store the currently selected model name
+        let selectedVoice = ""; // Track selected voice in JS, initialized after fetch
+        let chatbotHistory = []; // Added: Store chatbot history for input hook
+        let cumulativeInputCost = 0.0; // LLM Input
+        let cumulativeOutputCost = 0.0; // LLM Output
+        let cumulativeTtsCost = 0.0; // Added: TTS Cost
+        let cumulativeTotalCost = 0.0; // Total
+
+        const audioOutput = document.getElementById('audio-output');
+        const startButton = document.getElementById('start-button');
+        const muteArea = document.getElementById('mute-area');
+        const muteButton = document.getElementById('mute-button');
+        const chatMessages = document.getElementById('chat-messages');
+        // const modelCheckbox = document.getElementById('model-checkbox'); // Removed
+        // const modelLabel = document.querySelector('label[for="model-checkbox"]'); // Removed
+        const modelSelect = document.getElementById('model-select'); // Added
+        const voiceSelect = document.getElementById('voice-select');
+        const statusIndicator = document.getElementById('status-indicator'); // Added
+        const statusSpinner = document.getElementById('status-spinner'); // Added
+        const statusText = document.getElementById('status-text'); // Added
+        // Removed contextMenu and copyButton variables
+        const toastElement = document.getElementById('toast-notification'); // Added
+
+        // Add event listener for when the TTS audio finishes playing (Removed notification sound)
+        audioOutput.addEventListener('ended', () => {
+            console.log("Audio output finished playing.");
+            // Notification sound removed from here
+        });
+
+        // Configure marked globally to treat single newlines as <br>
+        marked.setOptions({
+          breaks: true,
+          gfm: true // Enable GitHub Flavored Markdown compatibility
+        });
+
+        let audioLevel = 0;
+        let animationFrame;
+        let audioContext, analyser, audioSource;
+        let notificationAudioContext; // Added for notification sound
+
+        // Function to render the system message UI element
+        function renderSystemMessageUI(content) {
+            if (content && content.trim() !== '') {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message', 'system');
+                messageDiv.innerHTML = marked.parse(content);
+                chatMessages.appendChild(messageDiv);
+                // Don't scroll here, let the main flow handle it if needed
+            }
+        }
+
+        // Function to play a notification sound
+        function playNotificationSound() {
+            try {
+                if (!notificationAudioContext) {
+                    // Create AudioContext on first use (or reuse existing if preferred, but separate is cleaner)
+                    notificationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+
+                // Ensure context is running (might be suspended initially)
+                if (notificationAudioContext.state === 'suspended') {
+                    notificationAudioContext.resume();
+                }
+
+                const oscillator = notificationAudioContext.createOscillator();
+                const gainNode = notificationAudioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(notificationAudioContext.destination);
+
+                oscillator.type = 'sine'; // Simple tone
+                oscillator.frequency.setValueAtTime(880, notificationAudioContext.currentTime); // A5 note
+                gainNode.gain.setValueAtTime(0.3, notificationAudioContext.currentTime); // Start volume
+                gainNode.gain.exponentialRampToValueAtTime(0.001, notificationAudioContext.currentTime + 0.3); // Fade out quickly
+
+                oscillator.start(notificationAudioContext.currentTime);
+                oscillator.stop(notificationAudioContext.currentTime + 0.3); // Stop after 0.3 seconds
+                console.debug("Played notification sound.");
+
+            } catch (error) {
+                console.error("Error playing notification sound:", error);
+                // Don't show toast for this, might be annoying
+            }
+        }
+
+
+        // Function to display initial system message (reads from DOM, adds to history AND UI)
+        function displayInitialSystemMessage() {
+            const systemMessageDataElement = document.getElementById('system-message-data');
+            if (systemMessageDataElement) {
+                try {
+                    const systemMessageContent = JSON.parse(systemMessageDataElement.textContent || '""');
+                    if (systemMessageContent && systemMessageContent.trim() !== '') {
+                        console.log("Processing initial system message.");
+                        // Add system message to UI
+                        renderSystemMessageUI(systemMessageContent); // Use the new UI-only function
+                        scrollToBottom(); // Scroll down after initial display
+
+                        // Add to internal history (only if not already there)
+                        if (!chatbotHistory.some(msg => msg.role === 'system' && msg.content === systemMessageContent)) {
+                             chatbotHistory.push({ role: 'system', content: systemMessageContent });
+                             console.debug("Added initial system message to chatbotHistory.");
+                        } else {
+                             console.debug("Initial system message already in chatbotHistory.");
+                        }
+                    } else {
+                        console.log("No initial system message content found.");
+                    }
+                } catch (error) {
+                    console.error("Error parsing system message data:", error);
+                }
+            } else {
+                console.warn("System message data element not found.");
+            }
+        }
+
+
+        // Mirror backend pricing (USD per 1M tokens) - This might be less accurate now with LiteLLM
+        // We will rely on the backend cost updates primarily.
+        const MODEL_PRICING = {
+            // Example structure, but backend data is the source of truth
+            // "gpt-4o-realtime-preview-2024-12-17": {
+            //     input: 40.0,
+            //     cached_input: 2.5, // Note: LiteLLM cost calculation doesn't use 'cached' concept
+            //     output: 80.0,
+            // },
+            // "gpt-4o-mini-realtime-preview-2024-12-17": {
+            //     input: 10.0,
+            //     cached_input: 0.3,
+            //     output: 20.0,
+            // },
+        };
+
+
+        // SVG Icons
+        const micIconSVG = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>`;
+
+        const micMutedIconSVG = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+            </svg>`;
+
+        function updateButtonState() {
+            // References are now global
+
+            // Clear start button content
+            startButton.innerHTML = '';
+
+            const isConnecting = peerConnection && (peerConnection.connectionState === 'connecting' || peerConnection.connectionState === 'new');
+            const isConnected = peerConnection && peerConnection.connectionState === 'connected';
+
+            if (isConnecting) {
+                startButton.style.display = 'inline-flex'; // Show start button
+                muteArea.style.display = 'none'; // Hide mute area
+
+                const spinner = document.createElement('div');
+                spinner.className = 'spinner'; // Add spinner
+                const text = document.createElement('span');
+                text.textContent = 'Connecting...'; // Change text
+                startButton.classList.add('icon-with-spinner'); // Add class for layout
+                startButton.appendChild(spinner);
+                startButton.appendChild(text);
+                startButton.disabled = true; // Disable button
+                modelSelect.disabled = true; // Disable model select
+                voiceSelect.disabled = true; // Disable voice select
+
+            } else if (isConnected) {
+                startButton.style.display = 'none'; // Hide start button
+                startButton.classList.remove('icon-with-spinner'); // Remove class
+                startButton.disabled = true; // Keep disabled (though hidden)
+                muteArea.style.display = 'flex'; // Show mute area
+                modelSelect.disabled = true; // Keep model select disabled while connected
+                voiceSelect.disabled = false; // *** Allow voice select while connected ***
+
+                // Update mute button icon/text
+                muteButton.innerHTML = ''; // Clear previous content
+                const micIcon = document.createElement('div');
+                micIcon.className = 'mute-toggle'; // Use existing class for size
+                micIcon.innerHTML = isMuted ? micMutedIconSVG : micIconSVG;
+                const text = document.createElement('span');
+                text.textContent = isMuted ? 'Unmute' : 'Mute';
+                muteButton.appendChild(micIcon);
+                muteButton.appendChild(text);
+
+            } else { // Initial state or disconnected/failed
+                startButton.style.display = 'inline-flex'; // Show start button
+                muteArea.style.display = 'none'; // Hide mute area
+                startButton.classList.remove('icon-with-spinner'); // Remove class
+                startButton.disabled = false; // Enable start button
+                modelSelect.disabled = false; // Enable model select
+                voiceSelect.disabled = false; // Enable voice select
+
+                const text = document.createElement('span'); // Reset text to "Start"
+                text.textContent = 'Start';
+                startButton.appendChild(text);
+            }
+        }
+
+
+        function toggleMute() {
+            if (!peerConnection || peerConnection.connectionState !== 'connected') return;
+
+            isMuted = !isMuted;
+            console.log("Mute toggled:", isMuted);
+
+            peerConnection.getSenders().forEach(sender => {
+                if (sender.track && sender.track.kind === 'audio') {
+                    sender.track.enabled = !isMuted;
+                    console.log(`Audio track ${sender.track.id} enabled: ${!isMuted}`);
+                }
+            });
+
+            updateButtonState();
+
+            // Notification sound removed from here
+        }
+
+        function setupAudioVisualization(stream) {
+            if (audioContext) { // Close existing context if any
+                audioContext.close();
+            }
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            try {
+                audioSource = audioContext.createMediaStreamSource(stream);
+                audioSource.connect(analyser);
+                analyser.fftSize = 64;
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                function updateAudioLevel() {
+                    if (!analyser) return; // Stop if analyser is gone
+                    analyser.getByteFrequencyData(dataArray);
+                    const average = Array.from(dataArray).reduce((a, b) => a + b, 0) / dataArray.length;
+                    // Scale audio level more aggressively for better visual feedback
+                    audioLevel = Math.min(1, (average / 255) * 2); // Multiply by 2, cap at 1
+
+                    // Update CSS variable for the pulse circle in the mute area
+                    const pulseCircle = muteArea.querySelector('.pulse-circle');
+                    if (pulseCircle) {
+                        // Scale from 1 (no sound) to 1.5 (max sound)
+                        pulseCircle.style.setProperty('--audio-level', 1 + audioLevel * 0.5);
+                    }
+
+                    animationFrame = requestAnimationFrame(updateAudioLevel);
+                }
+                updateAudioLevel();
+            } catch (error) {
+                console.error("Error setting up audio source for visualization:", error);
+                showToast("Could not visualize audio.", "error");
+                if (audioContext) audioContext.close(); // Clean up context on error
+                audioContext = null;
+            }
+        }
+
+        // Function to update the status indicator UI
+        function updateStatusIndicator(status, message = '') {
+            if (!statusIndicator || !statusSpinner || !statusText) return;
+
+            if (status === 'idle' || !status) {
+                // Hide indicator
+                statusIndicator.classList.remove('visible');
+                statusSpinner.style.display = 'none';
+                statusText.textContent = '';
+            } else {
+                // Show indicator and update content
+                statusText.textContent = message || status; // Use message if provided, else status
+                // Show spinner only for processing states
+                statusSpinner.style.display = (status === 'stt_processing' || status === 'llm_waiting' || status === 'tts_processing') ? 'block' : 'none';
+                statusIndicator.classList.add('visible');
+            }
+             console.debug(`Status updated: ${status} - "${message}"`);
+        }
+
+
+        function showToast(message, type = 'error') { // type can be 'error' or 'warning'
+            toastElement.textContent = message;
+            toastElement.className = `toast ${type}`; // Apply class based on type
+            toastElement.style.display = 'block';
+
+            // Hide toast after 5 seconds
+            setTimeout(() => {
+                toastElement.style.display = 'none';
+            }, 5000);
+        }
+
+        async function setupWebRTC() {
+            // Create PeerConnection *before* updating state
+            const config = __RTC_CONFIGURATION__;
+            if (!config) {
+                 console.warn("RTC Configuration is missing. Using default (may not work with TURN).");
+            }
+            try {
+                peerConnection = new RTCPeerConnection(config);
+            } catch (error) {
+                console.error("Failed to create RTCPeerConnection:", error);
+                showToast("Failed to initialize connection.", "error");
+                updateButtonState(); // Reset button state
+                return;
+            }
+
+
+            updateButtonState(); // Show connecting state immediately
+
+            const timeoutId = setTimeout(() => {
+                showToast("Connection is taking longer than usual. Check network/VPN.", "warning");
+            }, 7000); // Increased timeout slightly
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
+
+                setupAudioVisualization(stream);
+
+                stream.getTracks().forEach(track => {
+                    try {
+                        peerConnection.addTrack(track, stream);
+                    } catch (trackError) {
+                         console.error(`Error adding track ${track.kind} (${track.id}):`, trackError);
+                         // Decide if this is fatal or can be ignored
+                    }
+                });
+
+                peerConnection.addEventListener('track', (evt) => {
+                    console.log("Received remote track:", evt.track.kind);
+                    if (evt.track.kind === 'audio' && audioOutput.srcObject !== evt.streams[0]) {
+                        console.log("Assigning remote audio stream to output element.");
+                        audioOutput.srcObject = evt.streams[0];
+                        audioOutput.play().catch(e => console.error("Audio play failed:", e));
+                    }
+                });
+
+                peerConnection.onicecandidate = ({ candidate }) => {
+                    if (candidate) {
+                        console.debug("Sending ICE candidate:", candidate.type, candidate.sdpMLineIndex);
+                        fetch('/webrtc/offer', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                candidate: candidate.toJSON(),
+                                webrtc_id: webrtc_id,
+                                type: "ice-candidate",
+                            })
+                        }).catch(iceError => console.error("Error sending ICE candidate:", iceError));
+                    } else {
+                        console.debug("All ICE candidates sent.");
+                    }
+                };
+
+                // Optional: Data channel for text messages/errors from backend
+                try {
+                    const dataChannel = peerConnection.createDataChannel('control');
+                    dataChannel.onmessage = (event) => {
+                        try {
+                            const eventJson = JSON.parse(event.data);
+                            console.log("Data channel message received:", eventJson);
+                            if (eventJson.type === "error") {
+                                showToast(`Server Error: ${eventJson.message}`, "error");
+                            }
+                            // Handle other potential message types
+                        } catch (parseError) {
+                            console.warn("Received non-JSON message on data channel:", event.data);
+                        }
+                    };
+                    dataChannel.onerror = (error) => {
+                         console.error("Data channel error:", error);
+                    };
+                    dataChannel.onclose = () => {
+                         console.log("Data channel closed.");
+                    };
+                     dataChannel.onopen = () => {
+                         console.log("Data channel opened.");
+                     };
+                } catch (dcError) {
+                     console.error("Error creating data channel:", dcError);
+                }
+
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                peerConnection.addEventListener('connectionstatechange', () => {
+                    console.log('Connection state changed:', peerConnection.connectionState);
+                    clearTimeout(timeoutId); // Clear connection timeout warning on any state change after initial attempt
+
+                    if (peerConnection.connectionState === 'connected') {
+                        // Hide any lingering warning toast
+                        if (toastElement.classList.contains('warning')) {
+                             toastElement.style.display = 'none';
+                             toastElement.className = 'toast'; // Reset class
+                        }
+                        // Add event listener to the new mute button *after* connection
+                        muteButton.addEventListener('click', toggleMute);
+
+                        // Send initial chatbot history via input hook
+                        sendInputHook();
+
+                    } else if (['failed', 'closed', 'disconnected'].includes(peerConnection.connectionState)) {
+                         // Remove listener if connection drops/fails/closes
+                         muteButton.removeEventListener('click', toggleMute);
+                         // Optionally show a toast if disconnected unexpectedly
+                         if (peerConnection.connectionState === 'failed') {
+                             showToast("Connection failed.", "error");
+                         } else if (peerConnection.connectionState === 'connected') {
+                             // Play sound when connection is established and ready for input
+                             console.log("Connection established, playing notification sound.");
+                             playNotificationSound();
+                         } else if (peerConnection.connectionState === 'disconnected') {
+                             showToast("Connection lost.", "warning");
+                         }
+                         stop(); // Ensure cleanup on failure/disconnection
+                    }
+                    updateButtonState(); // Update buttons for all state changes
+                });
+
+                webrtc_id = Math.random().toString(36).substring(7);
+                console.log(`Generated WebRTC ID: ${webrtc_id}`);
+
+                const response = await fetch('/webrtc/offer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sdp: peerConnection.localDescription.sdp,
+                        type: peerConnection.localDescription.type,
+                        webrtc_id: webrtc_id
+                    })
+                });
+
+                if (!response.ok) {
+                    let errorMsg = `Offer request failed: ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMsg += ` - ${errorData.detail || errorData.message || JSON.stringify(errorData)}`;
+                    } catch (e) { /* Ignore if response body is not JSON */ }
+                    throw new Error(errorMsg);
+                }
+
+                const serverResponse = await response.json();
+
+                if (serverResponse.status === 'failed') {
+                    const errorDetail = serverResponse.meta?.error || 'Unknown server error';
+                    const limit = serverResponse.meta?.limit;
+                    showToast(errorDetail === 'concurrency_limit_reached'
+                        ? `Too many connections. Limit: ${limit}`
+                        : `Server Error: ${errorDetail}`, "error");
+                    stop();
+                    return;
+                }
+
+                if (!serverResponse.sdp || !serverResponse.type) {
+                     throw new Error("Server response missing SDP or type");
+                }
+
+                await peerConnection.setRemoteDescription(serverResponse);
+                console.log("Remote description set successfully.");
+
+                // Setup EventSource *after* remote description is set
+                setupEventSource();
+
+            } catch (err) {
+                clearTimeout(timeoutId); // Clear timeout on any error during setup
+                console.error('Error during WebRTC setup:', err);
+                updateStatusIndicator('idle'); // Ensure indicator is hidden on error
+
+                let userMessage = 'Failed to establish connection. Please try again.';
+                if (err instanceof DOMException) {
+                    console.error(`DOMException: ${err.name} - ${err.message}`);
+                    if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                        userMessage = 'No microphone found. Please ensure one is connected and enabled.';
+                    } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                        userMessage = 'Microphone access denied. Please grant permission in browser settings.';
+                    } else if (err.name === 'OperationError') {
+                         userMessage = `Operation Error: ${err.message}. Try restarting the browser or device.`;
+                    } else {
+                        userMessage = `Microphone Access Error: ${err.name}. Check permissions/hardware.`;
+                    }
+                } else if (err.message.includes("Offer request failed")) {
+                    userMessage = `Connection setup failed: ${err.message.split(': ')[1]}`;
+                } else if (err.message.includes("Server response missing SDP")) {
+                     userMessage = "Received invalid response from server.";
+                }
+
+                showToast(userMessage, "error");
+                stop(); // Ensure cleanup happens regardless of error type
+            }
+        }
+
+        let eventSource = null; // Keep track of the EventSource instance
+
+        function setupEventSource() {
+            if (eventSource) {
+                eventSource.close(); // Close existing connection if any
+            }
+            console.log(`Setting up EventSource for webrtc_id: ${webrtc_id}`);
+            eventSource = new EventSource('/outputs?webrtc_id=' + webrtc_id);
+
+            // Generic handler for all server-sent events from /outputs
+            eventSource.onmessage = (event) => {
+                console.warn("Received generic message event (should use named events):", event.data);
+                // Try to parse and handle anyway, but ideally backend sends named events
+                try {
+                    const eventJson = JSON.parse(event.data);
+                    handleEventData(eventJson);
+                } catch (error) {
+                    console.error("Error processing generic SSE message:", error, "Raw data:", event.data);
+                }
+            };
+
+            // Specific handler for 'status_update' events
+            eventSource.addEventListener("status_update", (event) => {
+                try {
+                    const eventJson = JSON.parse(event.data);
+                    console.log("Status update event received:", eventJson);
+                    updateStatusIndicator(eventJson.status, eventJson.message); // Update UI
+                    // Removed notification sound trigger from here. It's now tied to audioOutput 'ended' event.
+                } catch (error) {
+                    console.error("Error processing status_update event:", error, "Raw data:", event.data);
+                }
+            });
+
+            // Specific handler for 'cost_update' events
+            eventSource.addEventListener("cost_update", (event) => {
+                try {
+                    const eventJson = JSON.parse(event.data);
+                    console.log("Cost update event received:", eventJson);
+                    updateCostDisplay(eventJson.data); // Pass the nested 'data' object
+                } catch (error) {
+                    console.error("Error processing cost_update event:", error, "Raw data:", event.data);
+                }
+            });
+
+            // Specific handler for 'chatbot_update' events (Handles full messages, e.g., user msg, initial errors)
+            eventSource.addEventListener("chatbot_update", (event) => {
+                try {
+                    const eventJson = JSON.parse(event.data);
+                    console.log("Chatbot update event received:", eventJson);
+                    // Add message to UI and history
+                    addMessage(eventJson.message.role, eventJson.message.content, true); // Mark as complete message
+
+                    // If this is the user's message, the STT phase is done.
+                    // The backend should now send 'llm_waiting'.
+                    // If it's an assistant message (e.g., error), set status to idle.
+                    if (eventJson.message.role === 'assistant') {
+                         updateStatusIndicator('idle');
+                    }
+
+                } catch (error) {
+                    console.error("Error processing chatbot_update event:", error, "Raw data:", event.data);
+                     updateStatusIndicator('idle'); // Clear status on error processing message
+                }
+            });
+
+            // Specific handler for 'text_chunk_update' events (Handles streaming LLM output)
+            eventSource.addEventListener("text_chunk_update", (event) => {
+                try {
+                    const eventJson = JSON.parse(event.data);
+                    // console.debug("Text chunk update event received:", eventJson.content); // Can be noisy
+
+                    // Hide the 'llm_waiting' status on the first chunk
+                    if (statusIndicator.classList.contains('visible') && statusText.textContent.includes('Waiting for AI')) {
+                         updateStatusIndicator('idle'); // Or maybe 'generating_text'? Let's stick to idle for now.
+                    }
+
+                    appendAssistantMessageChunk(eventJson.content); // Append chunk to UI
+                } catch (error) {
+                    console.error("Error processing text_chunk_update event:", error, "Raw data:", event.data);
+                     updateStatusIndicator('idle'); // Clear status on error
+                }
+            });
+
+
+            // Specific handler for backend errors sent via SSE
+             eventSource.addEventListener("error_event", (event) => { // Use a distinct event name
+                try {
+                    const eventJson = JSON.parse(event.data);
+                    console.error("Received error event from backend via SSE:", eventJson.message);
+                    showToast(`Backend Error: ${eventJson.message}`, "error");
+                } catch (error) {
+                    console.error("Error processing error_event:", error, "Raw data:", event.data);
+                }
+            });
+
+            // Specific handler for the final chatbot state update
+            eventSource.addEventListener("final_chatbot_state", (event) => {
+                try {
+                    const eventJson = JSON.parse(event.data);
+                    console.log("Final chatbot state event received:", eventJson);
+                    if (eventJson.history && Array.isArray(eventJson.history)) {
+                        // Update the frontend's history with the definitive state from the backend
+                        chatbotHistory = eventJson.history;
+                        console.debug("Updated chatbotHistory from final_chatbot_state:", chatbotHistory);
+                        // Send this updated history to the backend immediately
+                        sendInputHook();
+
+                        // Notification sound removed from here
+                    } else {
+                        console.warn("Received final_chatbot_state event without valid history array.");
+                    }
+                } catch (error) {
+                    console.error("Error processing final_chatbot_state event:", error, "Raw data:", event.data);
+                }
+            });
+
+
+            eventSource.onerror = (error) => {
+                console.error("EventSource error:", error);
+                // Attempt to reconnect or notify user? For now, just log.
+                // The browser might attempt reconnection automatically depending on the error.
+                // If the connection closes permanently (e.g., server restart), this might fire.
+                if (eventSource.readyState === EventSource.CLOSED) {
+                    console.warn("EventSource connection closed.");
+                    // Optionally try to re-establish after a delay if the peer connection is still active
+                }
+                // Don't necessarily stop the whole connection on EventSource error unless it's fatal
+            };
+
+             eventSource.onopen = () => {
+                 console.log("EventSource connection opened.");
+             };
+        }
+
+
+        // Update the cost display based on data received from the backend
+        function updateCostDisplay(costData) {
+            console.log("Received cost data for display:", costData); // Log the raw data received
+
+            if (!costData || typeof costData !== 'object') {
+                console.error("Invalid or missing cost data received.");
+                // Optionally update display to show error state
+                document.getElementById('input-cost').textContent = 'Err';
+                document.getElementById('cached-cost').textContent = 'Err';
+                document.getElementById('output-cost').textContent = 'Err';
+                document.getElementById('tts-cost').textContent = 'Err'; // TTS cost also affected
+                document.getElementById('total-cost').textContent = 'Err';
+                return;
+            }
+
+            try {
+                let currentInputCost = 0.0;
+                let currentOutputCost = 0.0;
+                let currentTtsCost = 0.0; // Initialize current TTS cost for this update
+                let calculationError = false;
+
+                // Check for explicit error from backend cost calculation (usually LLM)
+                if (costData.error) {
+                    console.warn(`Cost calculation error from backend: ${costData.error}`);
+                    document.getElementById('input-cost').textContent = 'N/A';
+                    document.getElementById('cached-cost').textContent = 'N/A'; // Keep consistent
+                    document.getElementById('output-cost').textContent = 'N/A';
+                    calculationError = true; // Mark error for total calculation
+                } else {
+                    // Parse LLM costs directly from costData if available
+                    currentInputCost = parseFloat(costData.input_cost) || 0.0;
+                    currentOutputCost = parseFloat(costData.output_cost) || 0.0;
+
+                    // Add current LLM costs to cumulative totals
+                    cumulativeInputCost += currentInputCost;
+                    cumulativeOutputCost += currentOutputCost;
+
+                    // Update LLM cost display
+                    document.getElementById('input-cost').textContent = '$' + cumulativeInputCost.toFixed(6);
+                    document.getElementById('cached-cost').textContent = '$0.000000'; // Still unused/hardcoded
+                    document.getElementById('output-cost').textContent = '$' + cumulativeOutputCost.toFixed(6);
+                }
+
+                // --- TTS Cost Handling ---
+                // Parse TTS cost if present in the payload
+                currentTtsCost = parseFloat(costData.tts_cost) || 0.0;
+
+                // Add current TTS cost to cumulative total
+                cumulativeTtsCost += currentTtsCost;
+
+                // Update TTS cost display
+                document.getElementById('tts-cost').textContent = '$' + cumulativeTtsCost.toFixed(6);
+                // --- End TTS Cost Handling ---
+
+
+                // Update Total Cost
+                if (calculationError) {
+                    // If LLM cost calculation had an error, show 'Error' for total
+                    // We still update TTS cost display above, but total is marked as error
+                    document.getElementById('total-cost').textContent = 'Error';
+                } else {
+                    // Recalculate total based on all cumulative values
+                    cumulativeTotalCost = cumulativeInputCost + cumulativeOutputCost + cumulativeTtsCost;
+                    document.getElementById('total-cost').textContent = '$' + cumulativeTotalCost.toFixed(6);
+                }
+
+                console.log(`Updated cumulative costs - Added LLM Input: $${currentInputCost.toFixed(6)}, LLM Output: $${currentOutputCost.toFixed(6)}, TTS: $${currentTtsCost.toFixed(6)} | New Total: $${cumulativeTotalCost.toFixed(6)}`);
+
+            } catch (error) {
+                // This catch block handles unexpected errors during the try block execution
+                console.error("Unexpected error updating cost display:", error, costData);
+                 // Display generic error state for all fields
+                document.getElementById('input-cost').textContent = 'Err';
+                document.getElementById('cached-cost').textContent = 'Err';
+                document.getElementById('output-cost').textContent = 'Err';
+                document.getElementById('tts-cost').textContent = 'Err';
+                document.getElementById('total-cost').textContent = 'Err';
+            }
+        }
+
+
+        // Function to add a complete message (user or initial assistant error)
+        function addMessage(role, content, isComplete = true) {
+            // Add to UI - Parse content as Markdown
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', role);
+            // Use marked.parse() and set innerHTML
+            messageDiv.innerHTML = marked.parse(content);
+            chatMessages.appendChild(messageDiv);
+            scrollToBottom(); // Scroll down
+
+            // Add to internal history only if it's marked as complete
+            // (Chunk updates don't add to history directly)
+            if (isComplete) {
+                const lastMessage = chatbotHistory[chatbotHistory.length - 1];
+                 // Add to history only if it's not already the last message (prevent duplicates)
+                 // Note: History update is now primarily driven by final_chatbot_state event
+                 if (!lastMessage || !(lastMessage.role === role && lastMessage.content === content)) {
+                    // We might still push user messages here for immediate reflection,
+                    // but the definitive history comes from the backend event.
+                    // Let's simplify and rely on the backend event for history consistency.
+                    // chatbotHistory.push({ role, content }); // Removed direct push
+                    console.debug("UI updated for complete message (history update deferred to final_chatbot_state):", { role, content });
+                    // DO NOT call sendInputHook here anymore.
+                } else {
+                     console.debug("Skipping duplicate complete message UI add:", { role, content });
+                }
+            }
+        }
+
+        // Function to append text chunks to the last assistant message in the UI
+        function appendAssistantMessageChunk(chunkContent) {
+            let lastMessageDiv = chatMessages.lastElementChild;
+
+            // If chat is empty or last message is from user, create a new assistant message div
+            if (!lastMessageDiv || !lastMessageDiv.classList.contains('assistant')) {
+                lastMessageDiv = document.createElement('div');
+                lastMessageDiv.classList.add('message', 'assistant');
+                chatMessages.appendChild(lastMessageDiv);
+            }
+
+            // Append the chunk content to the existing text content
+            // Store raw text in a data attribute or similar if needed, but for rendering, just append
+            const currentRawText = (lastMessageDiv.dataset.rawText || '') + chunkContent;
+            lastMessageDiv.dataset.rawText = currentRawText; // Store accumulated raw text
+
+            // Parse the *entire* accumulated raw text and update innerHTML
+            lastMessageDiv.innerHTML = marked.parse(currentRawText);
+
+            // Scroll to bottom smoothly
+            scrollToBottom(); // Always scroll when new chunks arrive
+        }
+
+        // Helper function to scroll chat messages to the bottom
+        function scrollToBottom(conditional = false) {
+            const isScrolledToBottom = chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 30; // Allow small threshold
+            if (!conditional || isScrolledToBottom) {
+                // Use smooth scrolling behavior
+                chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+            }
+        }
+
+        // Function to reset cumulative costs
+        function resetCumulativeCosts() {
+            cumulativeInputCost = 0.0;
+            cumulativeOutputCost = 0.0;
+            cumulativeTtsCost = 0.0; // Reset TTS cost
+            cumulativeTotalCost = 0.0;
+            // Update display immediately
+            document.getElementById('input-cost').textContent = '$0.000000';
+            document.getElementById('cached-cost').textContent = '$0.000000';
+            document.getElementById('output-cost').textContent = '$0.000000';
+            document.getElementById('tts-cost').textContent = '$0.000000'; // Reset TTS display
+            document.getElementById('total-cost').textContent = '$0.000000';
+            console.log("Cumulative costs reset.");
+        }
+
+
+        // Function to send chatbot history to the backend input hook
+        async function sendInputHook() {
+            if (!webrtc_id) {
+                console.warn("Cannot send input hook: webrtc_id is not set.");
+                return;
+            }
+            console.debug("Sending input hook with history:", chatbotHistory);
+            try {
+                const response = await fetch('/input_hook', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        webrtc_id: webrtc_id,
+                        chatbot: chatbotHistory // Send the current history
+                    })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(`Input hook failed: ${response.status} - ${errorData.detail || errorData.message || 'Unknown error'}`);
+                }
+                console.debug("Input hook sent successfully.");
+            } catch (error) {
+                console.error("Error sending input hook:", error);
+                // Optionally show a toast, but might be too noisy
+                // showToast("Error updating server context.", "warning");
+            }
+        }
+
+
+        function stop() {
+            console.log('Stop function called.');
+            if (animationFrame) {
+                cancelAnimationFrame(animationFrame);
+                animationFrame = null;
+            }
+            if (audioContext) {
+                audioContext.close().catch(e => console.warn("Error closing AudioContext:", e));
+                audioContext = null;
+                analyser = null;
+                audioSource = null;
+            }
+             if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                console.log("EventSource closed.");
+            }
+            if (peerConnection) {
+                console.log('Closing PeerConnection...');
+                // Remove listeners to prevent errors during closing
+                peerConnection.onicecandidate = null;
+                peerConnection.ontrack = null;
+                peerConnection.onconnectionstatechange = null;
+
+                // Close data channels associated with the connection
+                if (peerConnection.sctp && peerConnection.sctp.transport) {
+                    // This is more complex, usually closing the PC handles channels
+                } else if (peerConnection.dataChannels) { // Older API?
+                     peerConnection.dataChannels.forEach(channel => channel.close());
+                }
+
+                // Stop transceivers
+                if (peerConnection.getTransceivers) {
+                    peerConnection.getTransceivers().forEach(transceiver => {
+                        if (transceiver.stop) {
+                            try {
+                                transceiver.stop();
+                            } catch (e) {
+                                console.warn("Error stopping transceiver:", e);
+                            }
+                        }
+                        // Also stop sender/receiver tracks explicitly?
+                        if (transceiver.sender && transceiver.sender.track) {
+                             transceiver.sender.track.stop();
+                        }
+                         if (transceiver.receiver && transceiver.receiver.track) {
+                             transceiver.receiver.track.stop();
+                        }
+                    });
+                }
+
+                // Stop tracks on senders (might be redundant if transceivers are stopped)
+                if (peerConnection.getSenders) {
+                    peerConnection.getSenders().forEach(sender => {
+                        if (sender.track) {
+                            try {
+                                sender.track.stop();
+                            } catch (e) {
+                                console.warn("Error stopping sender track:", e);
+                            }
+                        }
+                    });
+                }
+
+                // Finally, close the connection
+                peerConnection.close();
+                console.log('PeerConnection closed.');
+                peerConnection = null; // Clear the reference
+            }
+
+            // Ensure mute button listener is removed on stop
+            muteButton.removeEventListener('click', toggleMute);
+            updateButtonState(); // Reset button to initial state
+            audioLevel = 0;
+            // Reset pulse circle
+            const pulseCircle = muteArea.querySelector('.pulse-circle');
+            if (pulseCircle) {
+                pulseCircle.style.setProperty('--audio-level', 1);
+            }
+            updateStatusIndicator('idle'); // Ensure status is idle when stopped
+            console.log('Stop function finished.');
+        }
+
+        startButton.addEventListener('click', () => {
+            console.log('Start button clicked');
+            updateStatusIndicator('idle'); // Clear status before starting
+            // Only start if not already connected or connecting
+            if (!peerConnection || !['connected', 'connecting', 'new'].includes(peerConnection.connectionState)) {
+                // Store system message if it exists as the first message
+                let initialSystemMessage = null;
+                if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
+                    initialSystemMessage = chatbotHistory[0];
+                    console.log("Preserving initial system message content:", initialSystemMessage.content);
+                }
+
+                // Clear chat UI and reset costs before starting a new session
+                chatMessages.innerHTML = ''; // Clear UI first
+                chatbotHistory = []; // Clear internal history
+
+                // Re-add system message to history and UI if it was preserved
+                if (initialSystemMessage) {
+                    chatbotHistory.push(initialSystemMessage); // Add back to history
+                    renderSystemMessageUI(initialSystemMessage.content); // Add back to UI
+                    console.log("Restored system message to history and UI.");
+                }
+
+                // Reset cumulative costs at the start of a new session
+                resetCumulativeCosts();
+                console.log("Chat UI cleared (system message restored), starting WebRTC setup...");
+                setupWebRTC(); // This will trigger sendInputHook which now includes the system message
+            } else {
+                console.log('Connection already active or starting.');
+            }
+        });
+
+
+        // --- Fetch Available Models on Load ---
+        async function fetchAndPopulateModels() {
+            try {
+                const response = await fetch('/available_models');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch models: ${response.status}`);
+                }
+                const data = await response.json();
+                console.log("Available models data:", data);
+
+                if (!data.available || !data.current) {
+                     throw new Error("Invalid model data received from server.");
+                }
+
+                selectedModel = data.current; // Set the initial selected model
+                modelSelect.innerHTML = ''; // Clear loading message
+
+                data.available.forEach(modelId => {
+                    const option = document.createElement('option');
+                    option.value = modelId;
+                    // Use the actual model ID as the display text
+                    option.textContent = modelId;
+                    modelSelect.appendChild(option);
+                });
+
+                // Ensure the 'current' model from backend is actually in the list before setting
+                if (data.available.includes(selectedModel)) {
+                    modelSelect.value = selectedModel; // Set the dropdown to the current model
+                } else if (data.available.length > 0) {
+                    // If current model isn't listed (edge case), select the first available one
+                    console.warn(`Current model '${selectedModel}' not in available list. Selecting first available: '${data.available[0]}'`);
+                    selectedModel = data.available[0];
+                    modelSelect.value = selectedModel;
+                } else {
+                    // No models available at all
+                     console.error("No available models received from backend.");
+                     modelSelect.innerHTML = '<option value="">No models found</option>';
+                     modelSelect.disabled = true;
+                     return; // Stop further processing
+                }
+
+                modelSelect.disabled = false; // Enable dropdown after loading
+                updateButtonState(); // Update general button state
+
+            } catch (error) {
+                console.error('Error fetching available models:', error);
+                showToast('Failed to load available models.', 'error');
+                modelSelect.innerHTML = '<option value="">Error loading</option>';
+                modelSelect.disabled = true;
+            }
+        }
+        // --- End Fetch Models ---
+
+        // --- Fetch Available Voices on Load ---
+        async function fetchAndPopulateVoices() {
+            try {
+                const response = await fetch('/available_voices_tts'); // Use the new endpoint
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch voices: ${response.status}`);
+                }
+                const data = await response.json();
+                console.log("Available voices data:", data);
+
+                if (!data.available || !data.current) {
+                     throw new Error("Invalid voice data received from server.");
+                }
+
+                selectedVoice = data.current; // Set the initial selected voice from backend
+                voiceSelect.innerHTML = ''; // Clear loading message
+
+                data.available.forEach(voiceId => {
+                    const option = document.createElement('option');
+                    option.value = voiceId;
+                    // Capitalize first letter for display
+                    option.textContent = voiceId.charAt(0).toUpperCase() + voiceId.slice(1);
+                    voiceSelect.appendChild(option);
+                });
+
+                // Ensure the 'current' voice from backend is actually in the list before setting
+                if (data.available.includes(selectedVoice)) {
+                    voiceSelect.value = selectedVoice; // Set the dropdown to the current voice
+                } else if (data.available.length > 0) {
+                    // If current voice isn't listed (edge case), select the first available one
+                    console.warn(`Current voice '${selectedVoice}' not in available list. Selecting first available: '${data.available[0]}'`);
+                    selectedVoice = data.available[0];
+                    voiceSelect.value = selectedVoice;
+                } else {
+                    // No voices available at all
+                     console.error("No available voices received from backend.");
+                     voiceSelect.innerHTML = '<option value="">No voices found</option>';
+                     voiceSelect.disabled = true;
+                     return; // Stop further processing
+                }
+
+                voiceSelect.disabled = false; // Enable dropdown after loading
+                updateButtonState(); // Update general button state
+
+            } catch (error) {
+                console.error('Error fetching available voices:', error);
+                showToast('Failed to load available voices.', 'error');
+                voiceSelect.innerHTML = '<option value="">Error loading</option>';
+                voiceSelect.disabled = true;
+            }
+        }
+        // --- End Fetch Voices ---
+
+
+        // Initialize dropdowns and button state
+        updateButtonState(); // Set initial button state on load
+        fetchAndPopulateModels(); // Fetch models when the script runs
+        fetchAndPopulateVoices(); // Fetch voices when the script runs
+        displayInitialSystemMessage(); // Display system message after other initial setup
+        updateStatusIndicator('idle'); // Ensure indicator is hidden initially
+
+        // --- Auto Start Logic ---
+        function tryAutoStart() {
+            const autoStartDataElement = document.getElementById('auto-start-data');
+            let autoStart = false; // Default to false if flag is missing or invalid
+            if (autoStartDataElement) {
+                try {
+                    autoStart = JSON.parse(autoStartDataElement.textContent || 'false');
+                } catch (error) {
+                    console.error("Error parsing auto-start flag:", error);
+                }
+            } else {
+                console.warn("Auto-start data element not found.");
+            }
+
+            if (autoStart) {
+                console.log("Auto-start enabled. Attempting to click Start button...");
+                // Ensure the start button is visible and enabled before clicking
+                if (startButton.style.display !== 'none' && !startButton.disabled) {
+                    startButton.click();
+                    console.log("Auto-start: Clicked Start button.");
+                } else {
+                    console.warn("Auto-start: Start button not ready or visible yet. Retrying in 1 second...");
+                    // Retry once after a short delay, in case setup wasn't fully complete
+                    setTimeout(() => {
+                         if (startButton.style.display !== 'none' && !startButton.disabled) {
+                            startButton.click();
+                            console.log("Auto-start: Clicked Start button (retry).");
+                         } else {
+                             console.error("Auto-start: Failed to click Start button on retry.");
+                         }
+                    }, 1000); // 1 second delay
+                }
+            } else {
+                console.log("Auto-start disabled.");
+            }
+        }
+
+        // Call tryAutoStart after initial setup functions are called
+        // Use Promise.allSettled to wait for fetches, then try auto-start
+        Promise.allSettled([
+            fetchAndPopulateModels(),
+            fetchAndPopulateVoices()
+        ]).then(() => {
+            console.log("Model and voice fetching settled.");
+            // Small delay to allow UI updates from fetches to potentially complete
+            setTimeout(tryAutoStart, 100);
+        });
+        // --- End Auto Start Logic ---
+
+
+        // Voice selection change handler
+        voiceSelect.addEventListener('change', async () => {
+            const newVoice = voiceSelect.value;
+            const previousVoice = selectedVoice;
+            console.log(`Voice selected: ${newVoice}`);
+
+            // *** Removed connection check and stop() call ***
+            // const wasConnected = peerConnection && peerConnection.connectionState === 'connected';
+            // if (wasConnected) {
+            //     console.log("Stopping active connection due to voice change.");
+            //     stop();
+            //     await new Promise(resolve => setTimeout(resolve, 100)); // Short delay
+            // }
+
+            try {
+                // Call the server endpoint to switch the voice preference
+                const response = await fetch('/switch_voice', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ voice_name: newVoice }) // Corrected key name
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Failed to switch voice (${response.status})`);
+                }
+
+                const result = await response.json();
+                selectedVoice = newVoice; // Update JS state *after* successful confirmation
+
+                // Display notification
+                const friendlyVoiceName = voiceSelect.options[voiceSelect.selectedIndex].text;
+                // *** Updated toast message ***
+                let message = `Switched to ${friendlyVoiceName} voice. Change will apply to the next AI response.`;
+                showToast(message, "warning");
+
+            } catch (error) {
+                console.error('Error switching voice:', error);
+                showToast(`Error switching voice: ${error.message}`, 'error');
+                // Revert dropdown and local state if switch failed
+                voiceSelect.value = previousVoice;
+                selectedVoice = previousVoice;
+            } finally {
+                // Ensure button state is updated (might not be needed if stop() is removed, but safe)
+                updateButtonState();
+            }
+        });
+
+
+        // Model selection change handler
+        modelSelect.addEventListener('change', async () => {
+            const newModelName = modelSelect.value;
+            const previousModelName = selectedModel; // Store previous model
+            console.log(`Model selected: ${newModelName}`);
+
+            const wasConnected = peerConnection && peerConnection.connectionState === 'connected';
+
+            // If there's an active connection, stop it *before* switching model
+            // This is generally safer as context might need resetting.
+            if (wasConnected) {
+                console.log("Stopping active connection due to model change.");
+                stop();
+                // Small delay might be needed if stop() is not fully synchronous
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            try {
+                // Call the server endpoint to switch the model
+                const response = await fetch('/switch_model', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ model_name: newModelName }) // Send selected model name
+                });
+
+                 if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({})); // Try to get error details
+                    throw new Error(errorData.message || `Failed to switch model (${response.status})`);
+                }
+
+                const result = await response.json();
+                // Backend returns success even if model was already set
+
+                selectedModel = newModelName; // Update state *after* successful switch confirmation
+
+                // Clear chat messages UI and internal history
+                chatMessages.innerHTML = '';
+                chatbotHistory = [];
+
+                // Reset cumulative costs when switching models
+                resetCumulativeCosts();
+
+                // Re-display the initial system message after clearing
+                displayInitialSystemMessage();
+
+                // Display a notification about the model change
+                const friendlyModelName = modelSelect.options[modelSelect.selectedIndex].text; // Get display text
+                const message = `Switched to ${friendlyModelName} model.${wasConnected ? ' Connection stopped, click Start again.' : ''}`;
+                showToast(message, "warning");
+
+            } catch (error) {
+                console.error('Error switching models:', error);
+                showToast(`Error switching model: ${error.message}`, 'error');
+                // Revert dropdown and local state if switch failed
+                modelSelect.value = previousModelName;
+                selectedModel = previousModelName;
+            } finally {
+                 // Ensure button state is updated after potential stop()
+                 updateButtonState();
+            }
+        });
+
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', (event) => {
+            // Mute/Unmute with 'm' when connected
+            if (event.key.toLowerCase() === 'm' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                 if (peerConnection && peerConnection.connectionState === 'connected') {
+                    // Prevent default browser behavior if 'm' has any (e.g., in forms)
+                    // event.preventDefault();
+                    toggleMute();
+                 }
+            }
+            // Start connection with Space bar when start button is visible and enabled
+            else if ((event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                 if (startButton.style.display !== 'none' && !startButton.disabled) {
+                     // Prevent default space bar behavior (scrolling)
+                    event.preventDefault();
+                    // Simulate a click on the start button
+                    startButton.click();
+                 }
+            }
+            // Removed 's' shortcut for model switching
+        });
+
+        // --- Removed Custom Context Menu Logic ---
+
+        // --- Close Button Logic ---
+        const closeButton = document.getElementById('close-window-button');
+        if (closeButton) { // Check if button exists
+            closeButton.addEventListener('click', () => {
+                // Check if the pywebview API is available *when clicked*
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.close === 'function') {
+                    console.log("Closing window via pywebview API.");
+                    try {
+                        window.pywebview.api.close();
+                    } catch (apiError) {
+                         console.error("Error calling pywebview close API:", apiError);
+                         // Fallback? Maybe window.close(), though often blocked.
+                         // window.close();
+                    }
+                } else {
+                    // Fallback or warning if API is not found (e.g., running in a standard browser)
+                    console.warn("pywebview API not found. Cannot close window programmatically.");
+                    showToast("Cannot close automatically. Please close the window manually.", "warning");
+                }
+            });
+        } else {
+            console.error("Close button element not found.");
+        }
+        // --- End Close Button Logic ---
+
+        // Graceful shutdown on window close/refresh
+        window.addEventListener('beforeunload', (event) => {
+             console.log("beforeunload event triggered.");
+             // Attempt to close the connection cleanly
+             if (peerConnection && peerConnection.connectionState !== 'closed') {
+                 stop(); // Call the existing stop function
+                 console.log("Cleaned up resources before unload.");
+                 // You might not be able to prevent unload reliably here,
+                 // but cleanup is the main goal.
+             }
+        });
+
+        // --- Heartbeat ---
+        let heartbeatIntervalId = null;
+        const heartbeatIntervalMs = 5000; // Send heartbeat every 5 seconds
+
+        async function sendHeartbeat() {
+            // Only send heartbeats if the connection is active or trying to connect
+            // Or maybe send always while the page is open? Let's send always for simplicity.
+            // console.debug("Sending heartbeat..."); // Can be noisy
+            try {
+                // Use sendBeacon if available for unload, otherwise fetch
+                const payload = JSON.stringify({ timestamp: new Date().toISOString() });
+                if (navigator.sendBeacon) {
+                    // Use sendBeacon for efficiency, especially during unload
+                    // Note: sendBeacon typically sends POST, ensure backend accepts POST for heartbeat
+                     navigator.sendBeacon('/heartbeat', payload);
+                } else {
+                    // Fallback to fetch for older browsers or when beacon isn't suitable
+                    await fetch('/heartbeat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: payload,
+                        keepalive: true // Important for sending during page unload attempts
+                    });
+                }
+            } catch (error) {
+                console.warn('Heartbeat failed:', error);
+                // Don't show toast for this, could be annoying if transient network issues occur
+            }
+        }
+
+        // Start sending heartbeats shortly after the page loads
+        heartbeatIntervalId = setInterval(sendHeartbeat, heartbeatIntervalMs);
+        console.log("Heartbeat interval started.");
+
+        // Optional: Send one last beacon on unload (best effort)
+        window.addEventListener('unload', () => {
+             console.log("unload event triggered. Attempting final heartbeat beacon.");
+             if (navigator.sendBeacon) {
+                 const payload = JSON.stringify({ timestamp: new Date().toISOString(), status: 'unloading' });
+                 navigator.sendBeacon('/heartbeat', payload); // Send final signal
+             }
+             if (heartbeatIntervalId) {
+                 clearInterval(heartbeatIntervalId); // Clean up interval
+             }
+        }, false);
+        // --- End Heartbeat ---
+
+
+    </script>
+</body>
+
+</html>

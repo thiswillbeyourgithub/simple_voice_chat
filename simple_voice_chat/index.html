@@ -667,6 +667,12 @@
         let cumulativeTtsCost = 0.0; // Added: TTS Cost
         let cumulativeTotalCost = 0.0; // Total
 
+        // --- Fuzzy Search State ---
+        let modelSearchQuery = '';
+        let modelSearchTimeout = null;
+        let allModelOptions = []; // To store { value: '...', text: '...' }
+        // --- End Fuzzy Search State ---
+
         const audioOutput = document.getElementById('audio-output');
         const startButton = document.getElementById('start-button');
         const muteArea = document.getElementById('mute-area');
@@ -1744,8 +1750,68 @@
                 modelSelect.innerHTML = '<option value="">Error loading</option>';
                 modelSelect.disabled = true;
             }
+
+            // Store all options for fuzzy search
+            allModelOptions = Array.from(modelSelect.options).map(opt => ({ value: opt.value, text: opt.textContent }));
+            console.log("Stored all model options for fuzzy search:", allModelOptions);
+
         }
         // --- End Fetch Models ---
+
+        // --- Fuzzy Search Helper ---
+        function simpleFuzzyMatch(query, text) {
+            // Basic subsequence check - case insensitive
+            query = query.toLowerCase();
+            text = text.toLowerCase();
+            let queryIndex = 0;
+            let textIndex = 0;
+            let score = 0; // Simple score: higher is better (more chars matched)
+            let firstMatchIndex = -1;
+
+            while (queryIndex < query.length && textIndex < text.length) {
+                if (query[queryIndex] === text[textIndex]) {
+                    if (firstMatchIndex === -1) {
+                        firstMatchIndex = textIndex; // Record index of first matched character
+                    }
+                    score++;
+                    queryIndex++;
+                }
+                textIndex++;
+            }
+
+            // Return score only if all query characters were found in order
+            // Lower firstMatchIndex is slightly better (appears earlier)
+            if (queryIndex === query.length) {
+                return { score: score, firstMatchIndex: firstMatchIndex };
+            } else {
+                return { score: 0, firstMatchIndex: -1 }; // No match
+            }
+        }
+
+        function findBestFuzzyMatch(query, optionsList) {
+            if (!query) return null;
+
+            let bestMatch = null;
+            let highestScore = 0;
+            let bestFirstMatchIndex = Infinity;
+
+            optionsList.forEach(option => {
+                const matchResult = simpleFuzzyMatch(query, option.text);
+                if (matchResult.score > 0) {
+                    // Prioritize higher score, then earlier match start index
+                    if (matchResult.score > highestScore ||
+                        (matchResult.score === highestScore && matchResult.firstMatchIndex < bestFirstMatchIndex))
+                    {
+                        highestScore = matchResult.score;
+                        bestFirstMatchIndex = matchResult.firstMatchIndex;
+                        bestMatch = option;
+                    }
+                }
+            });
+            return bestMatch;
+        }
+        // --- End Fuzzy Search Helper ---
+
 
         // --- Fetch Available Voices on Load ---
         async function fetchAndPopulateVoices() {
@@ -1978,8 +2044,71 @@
             } finally {
                  // Ensure button state is updated after potential stop()
                  updateButtonState();
+            } finally {
+                 // Ensure button state is updated after potential stop()
+                 updateButtonState();
             }
         });
+
+        // --- Model Select Fuzzy Search Listener ---
+        modelSelect.addEventListener('keydown', (event) => {
+            // Ignore if modifier keys are pressed (except Shift for typing)
+            if (event.metaKey || event.ctrlKey || event.altKey) {
+                return;
+            }
+
+            // Handle Backspace
+            if (event.key === 'Backspace') {
+                modelSearchQuery = modelSearchQuery.slice(0, -1);
+                console.debug("Fuzzy search query:", modelSearchQuery);
+                event.preventDefault(); // Prevent browser back navigation if possible
+            }
+            // Handle printable characters (simplified check)
+            else if (event.key.length === 1 && event.key.match(/[\w\d\s\/\-\.]/i)) { // Allow letters, numbers, space, /, -, .
+                modelSearchQuery += event.key;
+                console.debug("Fuzzy search query:", modelSearchQuery);
+                event.preventDefault(); // Prevent default select behavior
+            }
+            // Handle Escape - clear query
+            else if (event.key === 'Escape') {
+                modelSearchQuery = '';
+                clearTimeout(modelSearchTimeout);
+                console.debug("Fuzzy search cleared by Escape.");
+                return; // Don't proceed to search
+            }
+            // Ignore other keys like Enter, Tab, Arrows etc. for now
+            else {
+                return;
+            }
+
+            // Clear previous timeout
+            clearTimeout(modelSearchTimeout);
+
+            // Set timeout to perform search after user stops typing
+            modelSearchTimeout = setTimeout(() => {
+                if (modelSearchQuery) {
+                    console.log(`Performing fuzzy search for: "${modelSearchQuery}"`);
+                    const bestMatch = findBestFuzzyMatch(modelSearchQuery, allModelOptions);
+
+                    if (bestMatch) {
+                        console.log("Best fuzzy match found:", bestMatch.text);
+                        if (modelSelect.value !== bestMatch.value) {
+                            modelSelect.value = bestMatch.value;
+                            // Manually trigger change event if value changed
+                            console.log("Triggering change event for model select due to fuzzy match.");
+                            modelSelect.dispatchEvent(new Event('change'));
+                        }
+                    } else {
+                        console.log("No fuzzy match found.");
+                        // Optional: revert to previous selection or do nothing
+                    }
+                }
+                // Reset query after search is performed (or timed out)
+                modelSearchQuery = '';
+            }, 500); // 500ms delay
+        });
+        // --- End Model Select Fuzzy Search Listener ---
+
 
         // Add keyboard shortcuts
         document.addEventListener('keydown', (event) => {

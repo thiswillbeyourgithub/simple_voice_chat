@@ -48,8 +48,10 @@
             justify-content: center; /* Center the content (h2 and span) */
             gap: 8px; /* Space between title and version */
             flex-grow: 1; /* Allow title container to take available space */
+            flex-shrink: 1; /* Allow title container to shrink if needed */
+            min-width: 150px; /* Prevent title from becoming too small */
             margin-right: 10px; /* Add some space before controls */
-            white-space: nowrap; /* Prevent wrapping within this container */
+            /* white-space: nowrap; /* Allow wrapping if necessary */
             text-align: center; /* Center the text within the container */
         }
 
@@ -69,7 +71,9 @@
             display: flex;
             align-items: center;
             gap: 10px; /* Adjusted gap */
-            flex-shrink: 0; /* Prevent controls container from shrinking */
+            flex-shrink: 0; /* Prevent controls container from shrinking initially */
+            flex-wrap: wrap; /* Ensure controls themselves can wrap if needed */
+            justify-content: flex-end; /* Align controls to the right when wrapping */
         }
 
         .header #start-button,

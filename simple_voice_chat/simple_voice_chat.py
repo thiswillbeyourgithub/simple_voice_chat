@@ -30,8 +30,8 @@ from fastrtc import (
     AlgoOptions,
     SileroVadOptions,
 )
-from gradio.utils import get_space  # Keep for get_twilio_turn_credentials check
-from openai import OpenAI, AuthenticationError  # Added AuthenticationError
+from gradio.utils import get_space # Keep for get_twilio_turn_credentials check
+from openai import OpenAI, AuthenticationError
 from pydantic import BaseModel
 
 # Import raw environment variable accessors
@@ -1460,26 +1460,26 @@ def main() -> int:
         )
         AVAILABLE_MODELS = ["fallback/unknown-model"]
 
-    # Determine the initial model using args.llm_model as the preference (Renamed arg)
-    initial_model_preference = args.llm_model  # Renamed arg
+    # Determine the initial model using args.llm_model as the preference
+    initial_model_preference = args.llm_model
     if initial_model_preference and initial_model_preference in AVAILABLE_MODELS:
         current_llm_model = initial_model_preference
         logger.info(
-            f"Using LLM model from --llm-model argument (or env default): {current_llm_model}"  # Renamed arg
+            f"Using LLM model from --llm-model argument (or env default): {current_llm_model}"
         )
     elif AVAILABLE_MODELS and AVAILABLE_MODELS[0] != "fallback/unknown-model":
-        if initial_model_preference:  # Log if the preferred wasn't found
+        if initial_model_preference: # Log if the preferred wasn't found
             logger.warning(
-                f"LLM model '{initial_model_preference}' from --llm-model (or env default) not found in available list {AVAILABLE_MODELS}. Trying first available model."  # Renamed arg
+                f"LLM model '{initial_model_preference}' from --llm-model (or env default) not found in available list {AVAILABLE_MODELS}. Trying first available model."
             )
         current_llm_model = AVAILABLE_MODELS[0]
         logger.info(f"Using first available model: {current_llm_model}")
-    elif initial_model_preference:  # Use preferred even if not in list, but warn
+    elif initial_model_preference: # Use preferred even if not in list, but warn
         current_llm_model = initial_model_preference
         logger.warning(
-            f"Model '{current_llm_model}' from --llm-model (or env default) not found in available list, but using it as requested. Cost calculation might fail."  # Renamed arg
+            f"Model '{current_llm_model}' from --llm-model (or env default) not found in available list, but using it as requested. Cost calculation might fail."
         )
-    else:  # No preference and no available models
+    else: # No preference and no available models
         current_llm_model = "fallback/unknown-model"
         logger.error(
             "No valid LLM models available or specified. Functionality may be impaired."

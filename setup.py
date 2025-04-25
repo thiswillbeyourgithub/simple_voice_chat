@@ -53,6 +53,7 @@ setuptools.setup(
         "uvicorn[standard]",
         "litellm",
         "loguru", # Already present, ensuring it's here
+        "platformdirs"
     ],
 
     # Define entry points, e.g., console scripts

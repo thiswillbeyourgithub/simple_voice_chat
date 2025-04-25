@@ -58,7 +58,7 @@ Run the main script using Python:
 
 
 ```bash
-python simple_voice_chat.py [OPTIONS]
+simple-voice-chat --help
 ```
 
 
@@ -72,7 +72,7 @@ The application will start a web server and attempt to open the interface in a d
 
 
 ```bash
-python simple_voice_chat.py --help
+simple-voice-chat --help
 ```
 
 

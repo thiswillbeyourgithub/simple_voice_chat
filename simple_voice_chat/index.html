@@ -767,10 +767,10 @@
                 const micIcon = document.createElement('div');
                 micIcon.className = 'mute-toggle'; // Use existing class for size
                 micIcon.innerHTML = isMuted ? micMutedIconSVG : micIconSVG;
-                const text = document.createElement('span');
-                text.textContent = isMuted ? 'Unmute' : 'Mute';
+                // const text = document.createElement('span'); // Removed text element
+                // text.textContent = isMuted ? 'Unmute' : 'Mute'; // Removed text content
                 muteButton.appendChild(micIcon);
-                muteButton.appendChild(text);
+                // muteButton.appendChild(text); // Removed appending text
 
             } else { // Initial state or disconnected/failed
                 startButton.style.display = 'inline-flex'; // Show start button

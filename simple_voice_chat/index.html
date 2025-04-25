@@ -153,6 +153,27 @@
             user-select: text; /* Allow text selection */
         }
 
+        /* Custom Scrollbar Styles for Webkit Browsers */
+        .chat-messages::-webkit-scrollbar {
+            width: 8px; /* Make scrollbar thinner */
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: #1a1a1a; /* Dark background for the track */
+            border-radius: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background-color: #555; /* Dark grey for the thumb */
+            border-radius: 4px;
+            border: 2px solid #1a1a1a; /* Match track background to create padding effect */
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background-color: #777; /* Slightly lighter grey on hover */
+        }
+        /* End Custom Scrollbar Styles */
+
         .message {
             margin-bottom: 20px;
             padding: 12px 16px;

@@ -71,7 +71,8 @@
         }
 
         .header #start-button,
-        .header #mute-button {
+        .header #mute-button,
+        .header #clear-chat-button { /* Added clear chat button */
             margin: 0;
             white-space: nowrap;
         }
@@ -497,6 +498,9 @@
                     </select>
                 </div>
                 <!-- End Voice Selection Dropdown -->
+                <!-- Clear Chat Button -->
+                <button id="clear-chat-button">Clear Chat</button>
+                <!-- End Clear Chat Button -->
             </div>
         </div>
         <!-- Cost Display Moved Here -->
@@ -564,6 +568,7 @@
         // const modelLabel = document.querySelector('label[for="model-checkbox"]'); // Removed
         const modelSelect = document.getElementById('model-select'); // Added
         const voiceSelect = document.getElementById('voice-select');
+        const clearChatButton = document.getElementById('clear-chat-button'); // Added
         const statusIndicator = document.getElementById('status-indicator'); // Added
         const statusSpinner = document.getElementById('status-spinner'); // Added
         const statusText = document.getElementById('status-text'); // Added
@@ -722,6 +727,7 @@
                 startButton.disabled = true; // Disable button
                 modelSelect.disabled = true; // Disable model select
                 voiceSelect.disabled = true; // Disable voice select
+                clearChatButton.disabled = true; // Disable clear chat button
 
             } else if (isConnected) {
                 startButton.style.display = 'none'; // Hide start button
@@ -730,6 +736,7 @@
                 muteArea.style.display = 'flex'; // Show mute area
                 modelSelect.disabled = true; // Keep model select disabled while connected
                 voiceSelect.disabled = false; // *** Allow voice select while connected ***
+                clearChatButton.disabled = false; // Enable clear chat button while connected
 
                 // Update mute button icon/text
                 muteButton.innerHTML = ''; // Clear previous content
@@ -748,6 +755,7 @@
                 startButton.disabled = false; // Enable start button
                 modelSelect.disabled = false; // Enable model select
                 voiceSelect.disabled = false; // Enable voice select
+                clearChatButton.disabled = false; // Enable clear chat button
 
                 const text = document.createElement('span'); // Reset text to "Start"
                 text.textContent = 'Start';
@@ -1480,6 +1488,41 @@
                 console.log('Connection already active or starting.');
             }
         });
+
+        // --- Clear Chat Button Logic ---
+        clearChatButton.addEventListener('click', () => {
+            console.log("Clear Chat button clicked.");
+
+            // 1. Clear Chat UI
+            chatMessages.innerHTML = '';
+
+            // 2. Clear Internal History
+            chatbotHistory = [];
+
+            // 3. Reset Costs
+            resetCumulativeCosts();
+
+            // 4. Re-display Initial System Message (if any)
+            // This function handles adding it back to UI and history
+            displayInitialSystemMessage();
+
+            // 5. Send Updated (Cleared) History to Backend via Input Hook
+            // Only send if we have a webrtc_id (meaning a connection was established at some point)
+            // If the connection is currently active, this updates the backend context.
+            // If the connection is stopped, this might not be strictly necessary, but doesn't hurt.
+            if (webrtc_id) {
+                sendInputHook();
+            } else {
+                console.log("Skipping input hook on clear chat as connection was never established.");
+            }
+
+            // 6. Show Confirmation Toast
+            showToast("Chat cleared.", "warning"); // Use warning style for visibility
+
+            // 7. Ensure UI state is consistent (e.g., scroll to top/bottom)
+            scrollToBottom(); // Scroll to bottom (or top if preferred) after clearing
+        });
+        // --- End Clear Chat Button Logic ---
 
 
         // --- Fetch Available Models on Load ---

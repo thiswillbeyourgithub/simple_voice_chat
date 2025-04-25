@@ -82,7 +82,7 @@ from .utils.stt import (
 # load_dotenv() # Moved to utils.env
 
 # --- Application Version ---
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.0.0"
 # --- End Application Version ---
 
 # Environment variable loading and defaults are now handled in utils.env

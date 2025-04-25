@@ -380,10 +380,10 @@
             height: 30px; /* Increased size */
             border-radius: 50%;
             background-color: red; /* Changed color to red */
-            opacity: 0.2; /* Keep initial opacity low */
+            /* Base opacity will be set by JS, removing fixed low opacity */
             flex-shrink: 0;
             transform: scale(var(--audio-level, 1));
-            transition: transform 0.1s ease;
+            transition: transform 0.1s ease, opacity 0.1s ease; /* Add opacity transition */
         }
 
         /* Fix button layout */
@@ -908,8 +908,8 @@
                     if (pulseCircle) {
                         // Scale from 1 (no sound) to 1.5 (max sound)
                         pulseCircle.style.setProperty('--audio-level', 1 + audioLevel * 0.5);
-                        // Adjust opacity based on audio level for better visibility
-                        pulseCircle.style.opacity = 0.2 + audioLevel * 0.8; // Fade in as volume increases
+                        // Adjust opacity: Start at 0.6 (always visible red) and go up to 1.0 (brighter red)
+                        pulseCircle.style.opacity = 0.6 + audioLevel * 0.4;
                     }
 
                     animationFrame = requestAnimationFrame(updateAudioLevel);
@@ -1559,7 +1559,7 @@
             const pulseCircle = muteArea.querySelector('.pulse-circle');
             if (pulseCircle) {
                 pulseCircle.style.setProperty('--audio-level', 1);
-                pulseCircle.style.opacity = 0.2; // Reset opacity
+                pulseCircle.style.opacity = 0.6; // Reset opacity to base visible level
             }
             updateStatusIndicator('idle'); // Ensure status is idle when stopped
             console.log('Stop function finished.');

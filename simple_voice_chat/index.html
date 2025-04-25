@@ -256,10 +256,10 @@
             /* flex-shrink: 0; Removed as it's no longer in header flex */
             cursor: pointer; /* Make it look clickable */
             transition: background-color 0.2s;
-            position: absolute; /* Position absolutely */
-            top: 20px; /* Align with body padding */
-            right: 20px; /* Align with body padding */
-            z-index: 10; /* Ensure it's above other elements if needed */
+            position: fixed; /* Position relative to the viewport */
+            top: 10px; /* Align with close button */
+            right: 10px; /* Align with close button */
+            z-index: 1001; /* Ensure it's above most elements, below close button */
         }
 
         .cost-display:hover {
@@ -568,6 +568,31 @@
 <body>
     <!-- Close Button -->
     <button id="close-window-button" class="close-button" title="Close Application">&times;</button>
+    <!-- Cost Display (Moved Here) -->
+    <div class="cost-display" id="cost-display" title="Click to toggle cost details">
+        <!-- Always Visible: Total Cost -->
+        <div class="cost-item" id="total-cost-item">
+            <!-- Removed "Total Cost:" label -->
+            <span class="cost-value" id="total-cost">$0.000000</span>
+        </div>
+        <!-- Hidden by default: Detailed Costs -->
+        <div id="cost-details">
+            <div class="cost-item">
+                <span class="cost-label">LLM Input:</span>
+                <span class="cost-value" id="input-cost">0.000000</span>
+            </div>
+            <!-- Removed Cached Cost as it's not used -->
+            <div class="cost-item">
+                <span class="cost-label">LLM Output:</span>
+                <span class="cost-value" id="output-cost">0.000000</span>
+            </div>
+            <div class="cost-item">
+                <span class="cost-label">TTS:</span>
+                <span class="cost-value" id="tts-cost">0.000000</span>
+            </div>
+        </div>
+    </div>
+    <!-- End Cost Display -->
     <!-- Add toast element after body opening tag -->
     <div id="toast-notification" class="toast"></div> <!-- Renamed ID for clarity -->
     <!-- Placeholder for system message from backend -->
@@ -603,31 +628,6 @@
                 <!-- Clear Chat Button (Icon Only) -->
                 <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Removed text, added title -->
                 <!-- End Clear Chat Button -->
-                <!-- Cost Display Moved Here (Clickable for Details) -->
-                <div class="cost-display" id="cost-display" title="Click to toggle cost details">
-                    <!-- Always Visible: Total Cost -->
-                    <div class="cost-item" id="total-cost-item">
-                        <!-- Removed "Total Cost:" label -->
-                        <span class="cost-value" id="total-cost">$0.000000</span>
-                    </div>
-                    <!-- Hidden by default: Detailed Costs -->
-                    <div id="cost-details">
-                        <div class="cost-item">
-                            <span class="cost-label">LLM Input:</span>
-                            <span class="cost-value" id="input-cost">0.000000</span>
-                        </div>
-                        <!-- Removed Cached Cost as it's not used -->
-                        <div class="cost-item">
-                            <span class="cost-label">LLM Output:</span>
-                            <span class="cost-value" id="output-cost">0.000000</span>
-                        </div>
-                        <div class="cost-item">
-                            <span class="cost-label">TTS:</span>
-                            <span class="cost-value" id="tts-cost">0.000000</span>
-                        </div>
-                    </div>
-                </div>
-                <!-- End Cost Display -->
                 <!-- Mute Area containing the pulse circle and mute button -->
                 <div id="mute-area" style="display: none;"> <!-- Initially hidden -->
                     <!-- Removed wrapper div -->

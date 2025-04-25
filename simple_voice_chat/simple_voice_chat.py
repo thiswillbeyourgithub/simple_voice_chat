@@ -7,7 +7,7 @@ import sys  # Added for exiting on error
 
 import threading  # Added for running server in background
 import time
-import datetime  # Added for heartbeat timestamping
+import datetime  # Added for heartbeat timestamping and chat logging
 import uvicorn  # Added for server control
 import webbrowser  # Added for browser launch option
 from pathlib import Path
@@ -17,6 +17,7 @@ from loguru import logger  # Added loguru
 import litellm
 import numpy as np
 import webview  # Added for pywebview
+import platformdirs  # Added for chat log directory
 
 from fastapi import FastAPI, Request
 from fastapi.responses import (
@@ -101,6 +102,8 @@ SYSTEM_MESSAGE: str = (
 APP_PORT: int = 7860  # Default, will be updated by args
 IS_OPENAI_TTS: bool = False  # Flag to indicate if using OpenAI TTS
 IS_OPENAI_STT: bool = False  # Flag to indicate if using OpenAI STT
+CHAT_LOG_DIR: Optional[Path] = None  # Directory for chat logs
+STARTUP_TIMESTAMP_STR: Optional[str] = None  # Timestamp string for log filename
 
 # --- State Variables (Managed during runtime) ---
 AVAILABLE_MODELS: List[str] = []
@@ -159,6 +162,28 @@ OPENAI_TTS_PRICING = {
 
 # --- Current Directory ---
 # Moved inside main() where needed, or use relative paths
+
+
+# --- Chat History Saving Function ---
+def save_chat_history(history: List[Dict[str, str]]):
+    """Saves the current chat history to a JSON file named after the startup timestamp."""
+    global CHAT_LOG_DIR, STARTUP_TIMESTAMP_STR  # Access globals
+    if not CHAT_LOG_DIR or not STARTUP_TIMESTAMP_STR:
+        logger.warning(
+            "Chat log directory or startup timestamp not initialized. Cannot save history."
+        )
+        return
+
+    log_file_path = CHAT_LOG_DIR / f"{STARTUP_TIMESTAMP_STR}.json"
+    logger.debug(f"Saving chat history to: {log_file_path}")
+    try:
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+        logger.debug(f"Successfully saved chat history ({len(history)} messages).")
+    except IOError as e:
+        logger.error(f"Failed to save chat history to {log_file_path}: {e}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while saving chat history: {e}")
 
 
 # --- Core Response Logic (Async Streaming with Background TTS) ---
@@ -287,6 +312,8 @@ async def response(
     yield AdditionalOutputs({"type": "chatbot_update", "message": user_message})
     # Update messages list based on the modified copy
     messages.append(user_message)
+    # Save history after adding user message
+    save_chat_history(current_chatbot)
 
     # --- Streaming Chat Completion & Concurrent TTS ---
     llm_response_stream = None
@@ -502,6 +529,8 @@ async def response(
                 logger.info(
                     "Full assistant response added to chatbot history copy for next turn."
                 )
+                # Save history after adding assistant message
+                save_chat_history(current_chatbot)
             else:
                 logger.info(
                     "Full assistant response already present in history, skipping append."
@@ -562,7 +591,11 @@ async def response(
 
         logger.warning("Yielding final status update (idle, after auth exception)...")
         yield AdditionalOutputs(
-            {"type": "status_update", "status": "idle", "message": "Ready (Auth Error)"}
+            {
+                "type": "status_update",
+                "status": "idle",
+                "message": "Ready (Auth Error)",
+            }
         )
         logger.warning("Final status update (idle, after auth exception) yielded.")
 
@@ -1035,6 +1068,11 @@ def main() -> int:
     global AVAILABLE_MODELS, MODEL_COST_DATA, current_llm_model, AVAILABLE_VOICES_TTS
     global selected_voice, tts_client, stt_client
     global uvicorn_server, pywebview_window  # For server/window management
+    global CHAT_LOG_DIR, STARTUP_TIMESTAMP_STR  # For chat logging
+
+    # --- Record Startup Time ---
+    startup_time = datetime.datetime.now()
+    STARTUP_TIMESTAMP_STR = startup_time.strftime("%Y%m%d_%H%M%S")
 
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(
@@ -1340,6 +1378,19 @@ def main() -> int:
     # logger.level("uvicorn", level="WARNING") # Uvicorn logs might need specific handling
     # logger.level("litellm", level="INFO") # Keep litellm logs if desired
     # logger.level("requests", level="WARNING") # Example
+
+    # --- Setup Chat Log Directory ---
+    try:
+        # Use platformdirs to find appropriate user data directory
+        app_name = "SimpleVoiceChat"  # Application name
+        app_author = "Attila"  # Optional: Author name
+        user_data_dir = Path(platformdirs.user_data_dir(app_name, app_author))
+        CHAT_LOG_DIR = user_data_dir / "chats"
+        CHAT_LOG_DIR.mkdir(parents=True, exist_ok=True)  # Create dir if not exists
+        logger.debug(f"Chat log directory set to: {CHAT_LOG_DIR}")
+    except Exception as e:
+        logger.error(f"Failed to create chat log directory: {e}. Chat logging disabled.")
+        CHAT_LOG_DIR = None  # Disable logging if directory creation fails
 
     # --- Log Final Configuration ---
     logger.info(f"Logging level set to: {log_level}")

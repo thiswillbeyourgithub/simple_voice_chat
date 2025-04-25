@@ -225,50 +225,79 @@
         .message blockquote { border-left: 3px solid #555; padding-left: 1em; margin-left: 0; color: #ccc; }
         .message h1, .message h2, .message h3, .message h4, .message h5, .message h6 { margin-top: 1em; margin-bottom: 0.5em; }
 
-        /* Compact Cost Display Styles (Now in Header) */
+        /* Cost Display Styles (Now in Header, Clickable) */
         .cost-display {
             background-color: #1a1a1a;
             border: 1px solid #2a2a2a;
             border-radius: 6px;
-            padding: 0 12px; /* Adjusted padding for horizontal layout */
+            padding: 8px 12px; /* Adjusted padding */
             font-size: 13px;
-            display: flex; /* Keep flex */
-            align-items: center; /* Vertically center */
-            justify-content: center; /* Center content */
-            /* Removed width, margin-bottom, flex-wrap, gap, flex-direction */
+            display: flex;
+            flex-direction: column; /* Stack total and details */
+            align-items: center; /* Center items horizontally */
+            justify-content: center; /* Center content vertically */
             box-sizing: border-box;
-            height: 46px; /* Match button height */
-            min-width: 100px; /* Minimum width */
-            flex-shrink: 0; /* Prevent shrinking */
+            min-height: 46px; /* Minimum height to match buttons */
+            min-width: 120px; /* Slightly wider minimum width */
+            flex-shrink: 0;
+            cursor: pointer; /* Make it look clickable */
+            transition: background-color 0.2s;
         }
 
-        /* Hide the details container visually */
-        #cost-details {
-            display: none;
+        .cost-display:hover {
+            background-color: #252525; /* Slight hover effect */
         }
 
-        /* Style for the single visible cost item */
-        .cost-display .cost-item {
+        /* Style for the main visible total cost item */
+        .cost-display .cost-item#total-cost-item {
             display: flex;
             align-items: baseline;
-            gap: 6px; /* Slightly more gap */
+            gap: 6px;
+            width: 100%; /* Take full width */
+            justify-content: center; /* Center total cost */
+            margin-bottom: 4px; /* Space below total when details are hidden */
         }
 
         .cost-display .cost-label {
             font-size: 11px;
-            opacity: 0.7; /* Slightly more visible */
+            opacity: 0.7;
         }
 
         .cost-display .cost-value {
-            font-weight: bold; /* Make total value bold */
-            color: #4CAF50; /* Keep green color */
+            font-weight: bold;
+            color: #4CAF50; /* Green color for total */
         }
 
-        /* Remove hover effect and cursor from the container */
-        .cost-display:hover {
-             background-color: #1a1a1a; /* No hover effect */
+        /* Container for detailed costs, hidden by default */
+        #cost-details {
+            display: none; /* Hidden by default */
+            flex-direction: column; /* Stack details vertically */
+            align-items: flex-start; /* Align details to the left */
+            gap: 2px; /* Small gap between detail lines */
+            width: 100%; /* Take full width */
+            margin-top: 6px; /* Space above details when shown */
+            border-top: 1px solid #333; /* Separator line */
+            padding-top: 6px; /* Space above first detail */
         }
-        /* End Compact Cost Display Styles */
+
+        /* Style for individual detail items (LLM In, LLM Out, TTS) */
+        #cost-details .cost-item {
+            display: flex;
+            justify-content: space-between; /* Label left, value right */
+            width: 100%;
+            font-size: 11px; /* Smaller font for details */
+        }
+
+        #cost-details .cost-label {
+            opacity: 0.6; /* Slightly dimmer labels */
+        }
+
+        #cost-details .cost-value {
+            font-weight: normal; /* Normal weight for detail values */
+            color: #ccc; /* Lighter grey for detail values */
+            font-family: monospace; /* Monospace for alignment */
+        }
+        /* End Cost Display Styles */
 
         /* Removed .controls CSS as the element is gone */
 
@@ -537,19 +566,28 @@
                 <!-- Clear Chat Button (Icon Only) -->
                 <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Removed text, added title -->
                 <!-- End Clear Chat Button -->
-                <!-- Cost Display Moved Here (Simplified) -->
-                <div class="cost-display" id="cost-display" title="Total Estimated Cost (LLM Input + LLM Output + TTS)">
-                    <!-- Only Total Cost Visible -->
+                <!-- Cost Display Moved Here (Clickable for Details) -->
+                <div class="cost-display" id="cost-display" title="Click to toggle cost details">
+                    <!-- Always Visible: Total Cost -->
                     <div class="cost-item" id="total-cost-item">
-                        <span class="cost-label">Cost:</span> <!-- Simplified Label -->
+                        <span class="cost-label">Total Cost:</span> <!-- More specific label -->
                         <span class="cost-value" id="total-cost">$0.000000</span>
                     </div>
-                    <!-- Hidden detailed costs for JS updates -->
-                    <div id="cost-details" style="display: none;">
-                         <span id="input-cost"></span>
-                         <span id="cached-cost"></span>
-                         <span id="output-cost"></span>
-                         <span id="tts-cost"></span>
+                    <!-- Hidden by default: Detailed Costs -->
+                    <div id="cost-details">
+                        <div class="cost-item">
+                            <span class="cost-label">LLM Input:</span>
+                            <span class="cost-value" id="input-cost">0.000000</span>
+                        </div>
+                        <!-- Removed Cached Cost as it's not used -->
+                        <div class="cost-item">
+                            <span class="cost-label">LLM Output:</span>
+                            <span class="cost-value" id="output-cost">0.000000</span>
+                        </div>
+                        <div class="cost-item">
+                            <span class="cost-label">TTS:</span>
+                            <span class="cost-value" id="tts-cost">0.000000</span>
+                        </div>
                     </div>
                 </div>
                 <!-- End Cost Display -->
@@ -602,7 +640,8 @@
         const statusText = document.getElementById('status-text'); // Added
         // Removed contextMenu and copyButton variables
         const toastElement = document.getElementById('toast-notification'); // Added
-        // Removed costDisplayContainer and totalCostItem references for click listener
+        const costDisplayContainer = document.getElementById('cost-display'); // Added back
+        const costDetails = document.getElementById('cost-details'); // Added
 
         // Add event listener for when the TTS audio finishes playing (Removed notification sound)
         audioOutput.addEventListener('ended', () => {
@@ -1273,9 +1312,9 @@
                     cumulativeInputCost += currentInputCost;
                     cumulativeOutputCost += currentOutputCost;
 
-                    // Update hidden LLM cost spans (still needed for total calculation)
+                    // Update LLM cost spans within the (potentially hidden) details section
                     document.getElementById('input-cost').textContent = cumulativeInputCost.toFixed(6);
-                    document.getElementById('cached-cost').textContent = '0.000000'; // Still unused/hardcoded
+                    // document.getElementById('cached-cost').textContent = '0.000000'; // Removed cached cost element
                     document.getElementById('output-cost').textContent = cumulativeOutputCost.toFixed(6);
                 }
 
@@ -1286,12 +1325,12 @@
                 // Add current TTS cost to cumulative total
                 cumulativeTtsCost += currentTtsCost;
 
-                // Update hidden TTS cost span
+                // Update TTS cost span within the (potentially hidden) details section
                 document.getElementById('tts-cost').textContent = cumulativeTtsCost.toFixed(6);
                 // --- End TTS Cost Handling ---
 
 
-                // Update Total Cost (Visible Element)
+                // Update Total Cost (Always Visible Element)
                 if (calculationError) {
                     // If LLM cost calculation had an error, show 'Error' for total
                     // We still update TTS cost display above, but total is marked as error
@@ -1384,13 +1423,15 @@
             cumulativeOutputCost = 0.0;
             cumulativeTtsCost = 0.0; // Reset TTS cost
             cumulativeTotalCost = 0.0;
-            // Update hidden cost spans
+            // Update detail cost spans
             document.getElementById('input-cost').textContent = '0.000000';
-            document.getElementById('cached-cost').textContent = '0.000000';
+            // document.getElementById('cached-cost').textContent = '0.000000'; // Removed
             document.getElementById('output-cost').textContent = '0.000000';
             document.getElementById('tts-cost').textContent = '0.000000';
             // Update visible total cost display
             document.getElementById('total-cost').textContent = '$0.000000';
+            // Ensure details are hidden on reset
+            costDetails.style.display = 'none';
             console.log("Cumulative costs reset.");
         }
 
@@ -1705,7 +1746,14 @@
         displayInitialSystemMessage(); // Display system message after other initial setup
         updateStatusIndicator('idle'); // Ensure indicator is hidden initially
 
-        // --- Cost Details Toggle Removed ---
+        // --- Cost Details Toggle ---
+        costDisplayContainer.addEventListener('click', () => {
+            // Toggle the display style of the details section
+            const isHidden = costDetails.style.display === 'none' || costDetails.style.display === '';
+            costDetails.style.display = isHidden ? 'flex' : 'none'; // Use flex to match CSS
+            console.log(`Cost details toggled: ${isHidden ? 'shown' : 'hidden'}`);
+        });
+        // --- End Cost Details Toggle ---
 
         // --- Auto Start Logic ---
         function tryAutoStart() {

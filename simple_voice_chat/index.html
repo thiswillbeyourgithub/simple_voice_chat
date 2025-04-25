@@ -74,9 +74,13 @@
 
         .header #start-button,
         .header #mute-button,
-        .header #clear-chat-button { /* Added clear chat button */
+        .header #clear-chat-button {
             margin: 0;
             white-space: nowrap;
+            /* Adjust padding for icon-only button */
+            padding: 12px; /* Make it square-ish */
+            min-width: 46px; /* Ensure minimum size matches height */
+            width: 46px; /* Fixed width */
         }
 
         .header #mute-area {
@@ -522,8 +526,8 @@
                     </select>
                 </div>
                 <!-- End Voice Selection Dropdown -->
-                <!-- Clear Chat Button -->
-                <button id="clear-chat-button">Clear Chat</button>
+                <!-- Clear Chat Button (Icon Only) -->
+                <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Removed text, added title -->
                 <!-- End Clear Chat Button -->
             </div>
         </div>
@@ -728,6 +732,14 @@
                 <line x1="1" y1="1" x2="23" y2="23"></line>
             </svg>`;
 
+       const trashIconSVG = `
+           <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+               <polyline points="3 6 5 6 21 6"></polyline>
+               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+               <line x1="10" y1="11" x2="10" y2="17"></line>
+               <line x1="14" y1="11" x2="14" y2="17"></line>
+           </svg>`;
+
         function updateButtonState() {
             // References are now global
 
@@ -784,6 +796,18 @@
                 const text = document.createElement('span'); // Reset text to "Start"
                 text.textContent = 'Start';
                 startButton.appendChild(text);
+            }
+
+            // Set Clear Chat button icon (always visible when not connecting)
+            if (!isConnecting) {
+                clearChatButton.innerHTML = ''; // Clear previous content (if any)
+                const trashIcon = document.createElement('div');
+                trashIcon.style.width = '20px'; // Adjust size as needed
+                trashIcon.style.height = '20px';
+                trashIcon.innerHTML = trashIconSVG;
+                clearChatButton.appendChild(trashIcon);
+            } else {
+                clearChatButton.innerHTML = ''; // Clear icon when connecting
             }
         }
 

@@ -38,11 +38,11 @@ The primary motivation for creating this project was the high cost associated wi
 
     ```
 
-2.  Install the required Python packages:
+2.  Install the Python packages:
 
     ```bash
 
-    pip install -r requirements.txt
+    uv pip install -e .
 
     ```
 

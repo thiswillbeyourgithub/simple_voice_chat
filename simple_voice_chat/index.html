@@ -505,7 +505,7 @@
             justify-content: center; /* Horizontally center items */
             gap: 8px; /* Space between spinner and text */
             padding: 8px 15px; /* Padding */
-            margin-bottom: 10px; /* Reduced space below indicator */
+            margin-top: 10px; /* Add space above indicator, removed margin-bottom */
             font-size: 14px; /* Font size */
             color: #aaa; /* Text color */
             background-color: #1a1a1a; /* Background similar to cost display */
@@ -606,15 +606,14 @@
             </div>
         </div>
 
-        <!-- Status Indicator Added Here -->
-        <div class="status-indicator" id="status-indicator">
-            <div class="spinner" id="status-spinner" style="display: none;"></div>
-            <span id="status-text"></span>
-        </div>
-        <!-- End Status Indicator -->
-
         <div class="chat-container">
             <div class="chat-messages" id="chat-messages"></div>
+            <!-- Status Indicator Moved Here -->
+            <div class="status-indicator" id="status-indicator">
+                <div class="spinner" id="status-spinner" style="display: none;"></div>
+                <span id="status-text"></span>
+            </div>
+            <!-- End Status Indicator -->
         </div>
         <!-- Removed empty controls div -->
     </div>

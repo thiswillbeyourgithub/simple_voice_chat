@@ -638,6 +638,8 @@
         const statusText = document.getElementById('status-text'); // Added
         // Removed contextMenu and copyButton variables
         const toastElement = document.getElementById('toast-notification'); // Added
+        const costDisplayContainer = document.getElementById('cost-display'); // Reference to the main container
+        const totalCostItem = document.getElementById('total-cost-item'); // Reference to the clickable total cost item
 
         // Add event listener for when the TTS audio finishes playing (Removed notification sound)
         audioOutput.addEventListener('ended', () => {

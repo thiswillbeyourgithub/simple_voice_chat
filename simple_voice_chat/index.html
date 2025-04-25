@@ -178,13 +178,21 @@
         }
 
         .chat-messages::-webkit-scrollbar-thumb {
-            background-color: #555; /* Dark grey for the thumb */
+            background-color: transparent; /* Make thumb transparent by default */
             border-radius: 4px;
-            border: 2px solid #1a1a1a; /* Match track background to create padding effect */
+            border: 2px solid transparent; /* Make border transparent too */
+            background-clip: padding-box; /* Ensure background respects padding */
+            transition: background-color 0.2s ease-in-out; /* Add transition for smooth appearance */
+        }
+
+        /* Show scrollbar thumb when hovering over the chat messages area */
+        .chat-messages:hover::-webkit-scrollbar-thumb {
+            background-color: #555; /* Dark grey for the thumb */
+            border: 2px solid #1a1a1a; /* Restore border */
         }
 
         .chat-messages::-webkit-scrollbar-thumb:hover {
-            background-color: #777; /* Slightly lighter grey on hover */
+            background-color: #777; /* Slightly lighter grey on hover (when thumb is visible) */
         }
         /* End Custom Scrollbar Styles */
 

@@ -1708,6 +1708,9 @@
                 selectedModel = data.current; // Set the initial selected model
                 modelSelect.innerHTML = ''; // Clear loading message
 
+                // Sort models alphabetically before populating
+                data.available.sort();
+
                 data.available.forEach(modelId => {
                     const option = document.createElement('option');
                     option.value = modelId;
@@ -1760,6 +1763,9 @@
 
                 selectedVoice = data.current; // Set the initial selected voice from backend
                 voiceSelect.innerHTML = ''; // Clear loading message
+
+                // Sort voices alphabetically before populating
+                data.available.sort();
 
                 data.available.forEach(voiceId => {
                     const option = document.createElement('option');

@@ -392,7 +392,12 @@
             flex-shrink: 0;
             /* Base scale set in JS, default to smaller size */
             transform: scale(var(--audio-level, 0.8));
-            transition: transform 0.1s ease; /* Only transition transform */
+            transition: transform 0.1s ease, background-color 0.2s ease; /* Add background-color transition */
+        }
+
+        .pulse-circle.muted { /* Style for muted state */
+            background-color: #666; /* Grey color when muted */
+            /* Keep transform for consistency, but color changes */
         }
 
         /* Animation for message appearance */
@@ -905,6 +910,16 @@
                 }
             });
 
+            // Add/remove muted class to the pulse circle
+            const pulseCircle = muteArea.querySelector('.pulse-circle');
+            if (pulseCircle) {
+                if (isMuted) {
+                    pulseCircle.classList.add('muted');
+                } else {
+                    pulseCircle.classList.remove('muted');
+                }
+            }
+
             updateButtonState();
 
             // Notification sound removed from here
@@ -935,8 +950,8 @@
                         // Scale from 0.8 (no sound) to 1.5 (max sound)
                         const scale = 0.8 + audioLevel * 0.7;
                         pulseCircle.style.setProperty('--audio-level', scale);
-                        // Opacity is now fixed at 1 via CSS, no need to set it here.
-                        // pulseCircle.style.opacity = 1; // Removed opacity update
+                        // Color is now handled by the .muted class added/removed in toggleMute
+                        // No need to set color or opacity here.
                     }
 
                     animationFrame = requestAnimationFrame(updateAudioLevel);
@@ -1586,8 +1601,7 @@
             const pulseCircle = muteArea.querySelector('.pulse-circle');
             if (pulseCircle) {
                 pulseCircle.style.setProperty('--audio-level', 0.8); // Reset scale to base (silent) size
-                // Opacity is fixed via CSS, no need to reset here
-                // pulseCircle.style.opacity = 1;
+                pulseCircle.classList.remove('muted'); // Ensure muted class is removed on stop
             }
             updateStatusIndicator('idle'); // Ensure status is idle when stopped
             console.log('Stop function finished.');

@@ -90,30 +90,11 @@
         .header #mute-area {
             display: flex;
             align-items: center;
-            gap: 5px; /* Reduced gap inside the group */
-            border: 1px solid #444; /* Add a border to the group */
-            border-radius: 25px; /* Match button roundness */
-            padding: 0 10px 0 5px; /* Adjust padding (less left for circle) */
-            background-color: #1a1a1a; /* Subtle background */
-            height: 46px; /* Match button height */
-            box-sizing: border-box;
+            gap: 10px; /* Restore original gap */
+            /* Removed grouping styles: border, padding, background, fixed height */
         }
 
-        .mic-control-group #mute-button {
-            border: none; /* Remove border from the button itself */
-            background: none; /* Remove background from the button itself */
-            padding: 8px; /* Adjust padding if needed */
-            height: auto; /* Let the group control height */
-            width: auto; /* Let the group control width */
-        }
-
-        .mic-control-group #mute-button:hover {
-             /* Optional: Add hover effect to the group instead or modify button hover */
-             background-color: rgba(255, 255, 255, 0.1); /* Slight highlight on button hover */
-             transform: none; /* Prevent button scaling within group */
-             box-shadow: none; /* Prevent button shadow within group */
-             border-width: 0; /* Ensure no border on hover */
-        }
+        /* Removed .mic-control-group styles */
 
 
         /* Removed Model toggle styles */
@@ -565,13 +546,11 @@
             </div>
             <div class="controls-container">
                 <button id="start-button">Start</button>
-                <!-- Mute Area containing the grouped mic controls -->
+                <!-- Mute Area containing the pulse circle and mute button -->
                 <div id="mute-area" style="display: none;"> <!-- Initially hidden -->
-                    <!-- New wrapper div for visual grouping -->
-                    <div class="mic-control-group">
-                        <div class="pulse-circle"></div>
-                        <button id="mute-button" title="Toggle Mute (M)"></button> <!-- Icon set by JS, added title -->
-                    </div>
+                    <!-- Removed wrapper div -->
+                    <div class="pulse-circle"></div>
+                    <button id="mute-button" title="Toggle Mute (M)"></button> <!-- Icon set by JS, kept title -->
                 </div>
                 <!-- Model Selection Dropdown -->
                 <div class="select-container">

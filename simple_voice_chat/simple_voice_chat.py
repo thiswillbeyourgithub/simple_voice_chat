@@ -962,6 +962,27 @@ def register_endpoints(app: FastAPI, stream: Stream):
             logger.error(f"Error processing heartbeat: {e}")
             return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
+    # --- Endpoint to Reset Chat Log Timestamp ---
+    @app.post("/reset_chat_log")
+    async def reset_chat_log():
+        """Resets the timestamp used for the chat log filename."""
+        global STARTUP_TIMESTAMP_STR  # Need global to modify
+        try:
+            new_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            STARTUP_TIMESTAMP_STR = new_timestamp
+            logger.info(f"Chat log timestamp reset to: {STARTUP_TIMESTAMP_STR}")
+            return JSONResponse(
+                {"status": "success", "new_timestamp": STARTUP_TIMESTAMP_STR}
+            )
+        except Exception as e:
+            logger.error(f"Error resetting chat log timestamp: {e}")
+            return JSONResponse(
+                {"status": "error", "message": "Failed to reset chat log timestamp"},
+                status_code=500,
+            )
+
+    # --- End Reset Chat Log Endpoint ---
+
 
 # --- Pywebview API Class ---
 class Api:

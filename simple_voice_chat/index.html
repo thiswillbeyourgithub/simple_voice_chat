@@ -1490,7 +1490,7 @@
         });
 
         // --- Clear Chat Button Logic ---
-        clearChatButton.addEventListener('click', () => {
+        clearChatButton.addEventListener('click', async () => { // Make listener async
             console.log("Clear Chat button clicked.");
 
             // 1. Clear Chat UI
@@ -1508,16 +1508,32 @@
 
             // 5. Send Updated (Cleared) History to Backend via Input Hook
             // Only send if we have a webrtc_id (meaning a connection was established at some point)
-            // If the connection is currently active, this updates the backend context.
-            // If the connection is stopped, this might not be strictly necessary, but doesn't hurt.
             if (webrtc_id) {
-                sendInputHook();
+                await sendInputHook(); // Wait for input hook to complete
             } else {
                 console.log("Skipping input hook on clear chat as connection was never established.");
             }
 
-            // 6. Show Confirmation Toast
-            showToast("Chat cleared.", "warning"); // Use warning style for visibility
+            // 6. Call Backend to Reset Log Timestamp
+            try {
+                console.log("Requesting backend to reset chat log timestamp...");
+                const response = await fetch('/reset_chat_log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // No body needed for this request
+                });
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Failed to reset log timestamp (${response.status})`);
+                }
+                const result = await response.json();
+                console.log(`Backend confirmed log timestamp reset to: ${result.new_timestamp}`);
+                // Show Confirmation Toast (including log reset info)
+                showToast("Chat cleared. New log file started.", "warning"); // Use warning style for visibility
+            } catch (error) {
+                console.error("Error resetting chat log timestamp:", error);
+                showToast(`Chat cleared, but failed to start new log file: ${error.message}`, "error");
+            }
 
             // 7. Ensure UI state is consistent (e.g., scroll to top/bottom)
             scrollToBottom(); // Scroll to bottom (or top if preferred) after clearing

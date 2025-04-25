@@ -1,23 +1,20 @@
 import argparse
 import json
-
-# import logging # Removed standard logging
-import random  # Added for random port selection
-import sys  # Added for exiting on error
-
-import threading  # Added for running server in background
+import random
+import sys
+import threading
 import time
-import datetime  # Added for heartbeat timestamping and chat logging
-import uvicorn  # Added for server control
-import webbrowser  # Added for browser launch option
+import datetime
+import uvicorn
+import webbrowser
 from pathlib import Path
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
-from loguru import logger  # Added loguru
+from loguru import logger
 import litellm
 import numpy as np
-import webview  # Added for pywebview
-import platformdirs  # Added for chat log directory
+import webview
+import platformdirs
 
 from fastapi import FastAPI, Request
 from fastapi.responses import (
@@ -39,11 +36,11 @@ from pydantic import BaseModel
 
 # Import raw environment variable accessors
 # These will be used as defaults for argparse arguments
-from .utils.env import (  # Use relative import for package structure
-    LLM_HOST_ENV,  # Renamed
-    LLM_PORT_ENV,  # Renamed
-    DEFAULT_LLM_MODEL_ENV,  # Renamed
-    LLM_API_KEY_ENV,  # Renamed
+from .utils.env import (
+    LLM_HOST_ENV,
+    LLM_PORT_ENV,
+    DEFAULT_LLM_MODEL_ENV,
+    LLM_API_KEY_ENV,
     STT_HOST_ENV,
     STT_PORT_ENV,
     STT_MODEL_ENV,
@@ -60,44 +57,40 @@ from .utils.env import (  # Use relative import for package structure
     DEFAULT_TTS_SPEED_ENV,
     TTS_ACRONYM_PRESERVE_LIST_ENV,
     APP_PORT_ENV,
-    SYSTEM_MESSAGE_ENV,  # Now Optional[str]
+    SYSTEM_MESSAGE_ENV,
 )
 
 # Import other utils functions
-from .utils.tts import (  # Use relative import for package structure
+from .utils.tts import (
     get_voices,
     generate_tts_for_sentence,
-    prepare_available_voices_data,  # Import new helper
+    prepare_available_voices_data,
 )
-from .utils.llms import (  # Use relative import for package structure
+from .utils.llms import (
     get_models_and_costs_from_proxy,
     get_models_and_costs_from_litellm,
-    calculate_llm_cost,  # Import the renamed function
+    calculate_llm_cost,
 )
-from .utils.misc import is_port_in_use  # Use relative import for package structure
+from .utils.misc import is_port_in_use
 from .utils.stt import (
     transcribe_audio,
     check_stt_confidence,
-)  # Use relative import for package structure
-
-# load_dotenv() # Moved to utils.env
+)
 
 # --- Application Version ---
 APP_VERSION = "2.0.0"
 # --- End Application Version ---
 
-# Environment variable loading and defaults are now handled in utils.env
-# Logging related to env vars is also moved there.
 
 # --- Global Configuration Variables (Set after parsing args) ---
 # These will hold the final configuration values used by the application
 llm_api_base: Optional[str] = None
 stt_api_base: Optional[str] = None
 tts_base_url: Optional[str] = None
-use_llm_proxy: bool = False  # Renamed from use_litellm_proxy
+use_llm_proxy: bool = False
 TTS_ACRONYM_PRESERVE_SET: set[str] = set()
 SYSTEM_MESSAGE: str = (
-    ""  # Will hold the final system message string (empty if unspecified)
+    "" # Will hold the final system message string (empty if unspecified)
 )
 APP_PORT: int = 7860  # Default, will be updated by args
 IS_OPENAI_TTS: bool = False  # Flag to indicate if using OpenAI TTS
@@ -121,8 +114,8 @@ OPENAI_TTS_VOICES = [
     "nova",
     "shimmer",
     "ash",
-]  # Added ash
-selected_voice: Optional[str] = None  # Set after parsing args and checking availability
+]
+selected_voice: Optional[str] = None # Set after parsing args and checking availability
 
 # --- Clients (Initialized after parsing args) ---
 tts_client: Optional[OpenAI] = None
@@ -136,32 +129,6 @@ OPENAI_TTS_PRICING = {
     "tts-1-hd": 30.00,
 }
 # --- End Pricing Constants ---
-
-
-# --- Argument Parsing ---
-# Moved parser creation inside main() to avoid global side effects if imported
-# parser = argparse.ArgumentParser(...) # Moved
-
-# --- Apply Argument Values to Global Configuration ---
-# Moved configuration logic inside main()
-
-# --- Logging Configuration (Loguru) ---
-# Moved logger setup inside main()
-
-# --- Log Final Configuration ---
-# Moved logging inside main()
-
-# --- Populate Models and Costs ---
-# Moved population logic inside main()
-
-# --- Client Initialization ---
-# Moved client initialization inside main()
-
-# --- Populate Available Voices (Revised Logic) ---
-# Moved voice population logic inside main()
-
-# --- Current Directory ---
-# Moved inside main() where needed, or use relative paths
 
 
 # --- Chat History Saving Function ---
@@ -319,10 +286,9 @@ async def response(
     llm_response_stream = None
     full_response_text = ""
     sentence_buffer = ""
-    # tts_tasks = [] # Removed: We will yield audio immediately
     final_usage_info = None
     llm_error_occurred = False
-    first_chunk_yielded = False  # Track if we yielded the first chunk for UI
+    first_chunk_yielded = False # Track if we yielded the first chunk for UI
     response_completed_normally = False  # Track normal completion
     total_tts_chars = 0  # Initialize TTS character counter
 
@@ -338,26 +304,25 @@ async def response(
         llm_start_time = time.time()
         logger.info(
             f"Sending prompt to LLM ({current_llm_model}) for streaming..."
-        )  # Changed to info
-        llm_args_dict = {  # Renamed to avoid conflict with global 'args'
+        )
+        llm_args_dict = {
             "model": current_llm_model,
-            "messages": messages,  # Use the history including the user prompt
+            "messages": messages, # Use the history including the user prompt
             "stream": True,
             "stream_options": {
                 "include_usage": True
             },  # Request usage data in the stream
             # Use module-level llm_api_base and use_llm_proxy derived from args
-            **({"api_base": llm_api_base} if use_llm_proxy else {}),  # Use renamed flag
+            **({"api_base": llm_api_base} if use_llm_proxy else {}),
         }
-        # Use API key from args (Renamed) (needs access)
-        if args.llm_api_key:  # Renamed arg
-            llm_args_dict["api_key"] = args.llm_api_key  # Renamed arg
+        # Use API key from args (needs access)
+        if args.llm_api_key:
+            llm_args_dict["api_key"] = args.llm_api_key
 
         llm_response_stream = await litellm.acompletion(**llm_args_dict)
 
         async for chunk in llm_response_stream:
             logger.debug(f"CHUNK: {chunk}")
-            # print(f"CHUNK: {chunk}") # Optional: uncomment for verbose chunk logging
             # Check for content delta first
             delta_content = None
             if chunk.choices and chunk.choices[0].delta:
@@ -390,7 +355,7 @@ async def response(
 
                 logger.info(
                     f"Captured usage info from LLM chunk: {final_usage_info}"
-                )  # Changed to info
+                )
 
             # Process buffer when a newline is found (simple sentence splitting)
             # Check delta_content again to avoid processing non-content chunks
@@ -494,8 +459,8 @@ async def response(
 
         # Calculate LLM cost (if usage info available)
         if final_usage_info:
-            # Pass the global MODEL_COST_DATA to the imported function (Renamed)
-            llm_cost_result = calculate_llm_cost(  # Renamed function call
+            # Pass the global MODEL_COST_DATA to the imported function
+            llm_cost_result = calculate_llm_cost(
                 current_llm_model, final_usage_info, MODEL_COST_DATA
             )
             # Merge LLM cost results into the main cost_result dict
@@ -651,9 +616,6 @@ async def response(
 
 
 # --- FastAPI Setup ---
-# Moved stream creation inside main() to access args for VAD tuning if needed
-# stream = Stream(...) # Moved
-
 
 class Message(BaseModel):
     role: str
@@ -664,10 +626,6 @@ class InputData(BaseModel):
     webrtc_id: str
     chatbot: list[Message]
 
-
-# Moved app creation inside main()
-# app = FastAPI()
-# stream.mount(app) # Moved
 
 # --- Endpoint Definitions ---
 # These need access to the 'app' and 'stream' objects created in main()
@@ -703,9 +661,9 @@ def register_endpoints(app: FastAPI, stream: Stream):
         html_content = html_content.replace(
             "__SYSTEM_MESSAGE_JSON__", json.dumps(SYSTEM_MESSAGE)
         )
-        # Inject the auto-start flag (from args) (needs access)
+        # Inject the auto-start flag (from args)
         html_content = html_content.replace(
-            "__AUTO_START_FLAG__", json.dumps(args.auto_start)  # Use args directly
+            "__AUTO_START_FLAG__", json.dumps(args.auto_start)
         )
         # Inject the application version
         html_content = html_content.replace("__APP_VERSION__", APP_VERSION)
@@ -788,7 +746,7 @@ def register_endpoints(app: FastAPI, stream: Stream):
     @app.get("/available_models")
     async def get_available_models():
         global current_llm_model, AVAILABLE_MODELS
-        # AVAILABLE_MODELS is now populated at startup based on proxy or litellm.model_cost
+        # AVAILABLE_MODELS is populated at startup based on proxy or litellm.model_cost
         # It will contain prefixed names if using proxy
         return JSONResponse(
             {"available": AVAILABLE_MODELS, "current": current_llm_model}
@@ -798,7 +756,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
     @app.get("/available_voices_tts")
     async def get_available_voices():
         # Access module-level state variables
-        # No 'global' needed for reading
         # AVAILABLE_VOICES_TTS is populated correctly at startup based on IS_OPENAI_TTS flag
         response_data = prepare_available_voices_data(
             selected_voice, AVAILABLE_VOICES_TTS
@@ -868,7 +825,7 @@ def register_endpoints(app: FastAPI, stream: Stream):
     # --- Endpoint to Switch Model ---
     @app.post("/switch_model")
     async def switch_model(request: Request):
-        global current_llm_model  # Need global to modify module-level state
+        global current_llm_model # Need global to modify module-level state
         # AVAILABLE_MODELS and MODEL_COST_DATA are read-only here
         try:
             data = await request.json()
@@ -994,7 +951,6 @@ class Api:
         logger.info("API close method called.")
         if self._window:
             self._window.destroy()
-        # No os._exit needed, window closure triggers shutdown in main thread
 
 
 # --- Heartbeat Globals ---
@@ -1138,30 +1094,30 @@ def main() -> int:
         help=f"System message to prepend to the chat history. Default: (from SYSTEM_MESSAGE env var, empty if unset).",
     )
 
-    # --- LLM Arguments (Renamed) ---
+    # --- LLM Arguments ---
     parser.add_argument(
-        "--llm-host",  # Renamed
+        "--llm-host",
         type=str,
-        default=LLM_HOST_ENV,  # Default from env (Renamed)
-        help="Host address of the LLM proxy server (optional). Default: None. (Env: LLM_HOST)",  # Renamed env var
+        default=LLM_HOST_ENV, # Default from env
+        help="Host address of the LLM proxy server (optional). Default: None. (Env: LLM_HOST)",
     )
     parser.add_argument(
-        "--llm-port",  # Renamed
-        type=str,  # Read as string, convert later if needed
-        default=LLM_PORT_ENV,  # Default from env (Renamed)
-        help="Port of the LLM proxy server (optional). Default: None. (Env: LLM_PORT)",  # Renamed env var
+        "--llm-port",
+        type=str, # Read as string, convert later if needed
+        default=LLM_PORT_ENV, # Default from env
+        help="Port of the LLM proxy server (optional). Default: None. (Env: LLM_PORT)",
     )
     parser.add_argument(
-        "--llm-model",  # Renamed
+        "--llm-model",
         type=str,
-        default=DEFAULT_LLM_MODEL_ENV,  # Default from env (Renamed)
-        help=f"Default LLM model to use (e.g., 'gpt-4o', 'litellm_proxy/claude-3-opus'). Default: '{DEFAULT_LLM_MODEL_ENV}'. (Env: LLM_MODEL)",  # Renamed env var, updated example prefix
+        default=DEFAULT_LLM_MODEL_ENV, # Default from env
+        help=f"Default LLM model to use (e.g., 'gpt-4o', 'litellm_proxy/claude-3-opus'). Default: '{DEFAULT_LLM_MODEL_ENV}'. (Env: LLM_MODEL)",
     )
     parser.add_argument(
-        "--llm-api-key",  # Renamed
+        "--llm-api-key",
         type=str,
-        default=LLM_API_KEY_ENV,  # Default from env (Renamed)
-        help="API key for the LLM provider/proxy (optional, depends on setup). Default: None. (Env: LLM_API_KEY)",  # Renamed env var
+        default=LLM_API_KEY_ENV, # Default from env
+        help="API key for the LLM provider/proxy (optional, depends on setup). Default: None. (Env: LLM_API_KEY)",
     )
 
     # --- STT Arguments ---
@@ -1270,18 +1226,18 @@ def main() -> int:
         system_message_arg.strip() if system_message_arg is not None else ""
     )
 
-    # LLM Configuration (Using Renamed Args)
-    use_llm_proxy = bool(args.llm_host and args.llm_port)  # Renamed arg
+    # LLM Configuration
+    use_llm_proxy = bool(args.llm_host and args.llm_port)
     if use_llm_proxy:
         try:
-            llm_port_int = int(args.llm_port)  # Renamed arg
-            llm_api_base = f"http://{args.llm_host}:{llm_port_int}/v1"  # Renamed arg
+            llm_port_int = int(args.llm_port)
+            llm_api_base = f"http://{args.llm_host}:{llm_port_int}/v1"
         except (ValueError, TypeError):
             logger.error(
-                f"Invalid LLM port specified: '{args.llm_port}'. Disabling proxy."  # Renamed arg
+                f"Invalid LLM port specified: '{args.llm_port}'. Disabling proxy."
             )
             use_llm_proxy = False
-            llm_api_base = None  # Ensure it's None if proxy disabled due to bad port
+            llm_api_base = None # Ensure it's None if proxy disabled due to bad port
     else:
         llm_api_base = None  # Explicitly None if not using proxy
 
@@ -1415,25 +1371,25 @@ def main() -> int:
 
     # --- Log Final Configuration ---
     logger.info(f"Logging level set to: {log_level}")
-    logger.info(f"Application Version: {APP_VERSION}")  # Log the version
+    logger.info(f"Application Version: {APP_VERSION}")
     logger.info(f"Application server host: {args.host}")
     logger.info(
         f"Application server preferred port: {args.port}"
-    )  # Log preferred, actual might change
+    ) # Log preferred, actual might change
     if use_llm_proxy:
-        logger.info(f"Using LLM proxy at: {llm_api_base}")  # Updated log message
-        if args.llm_api_key:  # Renamed arg
-            logger.info("Using LLM API key provided.")  # Updated log message
+        logger.info(f"Using LLM proxy at: {llm_api_base}")
+        if args.llm_api_key:
+            logger.info("Using LLM API key provided.")
         else:
-            logger.info("No LLM API key provided.")  # Updated log message
+            logger.info("No LLM API key provided.")
     else:
         logger.info(
             "Not using LLM proxy (using default LLM routing)."
-        )  # Updated log message
-        if args.llm_api_key:  # Renamed arg
+        )
+        if args.llm_api_key:
             logger.info(
                 "Using LLM API key provided (for direct routing)."
-            )  # Updated log message
+            )
 
     # Log STT config based on type
     if IS_OPENAI_STT:
@@ -1492,7 +1448,7 @@ def main() -> int:
     # Uses global llm_api_base and args.llm_api_key which are set above
     if use_llm_proxy:
         AVAILABLE_MODELS, MODEL_COST_DATA = get_models_and_costs_from_proxy(
-            llm_api_base, args.llm_api_key  # Use renamed args for API key
+            llm_api_base, args.llm_api_key
         )
     else:
         AVAILABLE_MODELS, MODEL_COST_DATA = get_models_and_costs_from_litellm()
@@ -1537,7 +1493,7 @@ def main() -> int:
     try:
         tts_client = OpenAI(
             base_url=tts_base_url,
-            api_key=args.tts_api_key,  # Use args (required for OpenAI)
+            api_key=args.tts_api_key, # Use args (required for OpenAI)
         )
         # Perform a simple check if using OpenAI to validate the API key early
         if IS_OPENAI_TTS:
@@ -1567,7 +1523,7 @@ def main() -> int:
     try:
         stt_client = OpenAI(
             base_url=stt_api_base,
-            api_key=args.stt_api_key,  # Use args (required for OpenAI)
+            api_key=args.stt_api_key, # Use args (required for OpenAI)
         )
         # Perform a simple check if using OpenAI to validate the API key early
         if IS_OPENAI_STT:
@@ -1604,7 +1560,7 @@ def main() -> int:
         logger.info(
             f"Querying custom TTS server ({tts_base_url}) for available voices..."
         )
-        AVAILABLE_VOICES_TTS = get_voices(tts_base_url, args.tts_api_key)  # Use args
+        AVAILABLE_VOICES_TTS = get_voices(tts_base_url, args.tts_api_key)
         if not AVAILABLE_VOICES_TTS:
             logger.warning(
                 f"Could not retrieve voices from custom TTS server at {tts_base_url}. TTS might fail."
@@ -1622,7 +1578,7 @@ def main() -> int:
             f"Using TTS voice from --tts-voice argument (or env default): {selected_voice}"
         )
     elif AVAILABLE_VOICES_TTS:
-        if initial_voice_preference:  # Log if preferred wasn't found
+        if initial_voice_preference: # Log if preferred wasn't found
             logger.warning(
                 f"TTS voice '{initial_voice_preference}' from --tts-voice (or env default) not found in available voices: {AVAILABLE_VOICES_TTS}. Trying first available voice."
             )
@@ -1818,9 +1774,9 @@ def main() -> int:
                 url,
                 width=800,
                 height=800,
-                js_api=api,  # Updated height from 700 to 800, Added version to title
+                js_api=api,
             )
-            api._window = pywebview_window  # Pass window object to API class instance
+            api._window = pywebview_window # Pass window object to API class instance
 
             logger.info("Starting pywebview...")
             try:

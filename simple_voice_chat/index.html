@@ -28,6 +28,7 @@
             height: 100%; /* Use full parent height */
             display: flex;
             flex-direction: column;
+            position: relative; /* Added for absolute positioning of children */
         }
 
         .header {
@@ -244,9 +245,13 @@
             box-sizing: border-box;
             min-height: 46px; /* Minimum height to match buttons */
             min-width: 120px; /* Slightly wider minimum width */
-            flex-shrink: 0;
+            /* flex-shrink: 0; Removed as it's no longer in header flex */
             cursor: pointer; /* Make it look clickable */
             transition: background-color 0.2s;
+            position: absolute; /* Position absolutely */
+            top: 20px; /* Align with body padding */
+            right: 20px; /* Align with body padding */
+            z-index: 10; /* Ensure it's above other elements if needed */
         }
 
         .cost-display:hover {

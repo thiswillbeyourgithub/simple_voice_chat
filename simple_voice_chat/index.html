@@ -388,10 +388,11 @@
             height: 30px; /* Increased size */
             border-radius: 50%;
             background-color: red; /* Changed color to red */
-            /* Base opacity will be set by JS, removing fixed low opacity */
+            opacity: 1; /* Keep fully opaque */
             flex-shrink: 0;
-            transform: scale(var(--audio-level, 1));
-            transition: transform 0.1s ease, opacity 0.1s ease; /* Add opacity transition */
+            /* Base scale set in JS, default to smaller size */
+            transform: scale(var(--audio-level, 0.8));
+            transition: transform 0.1s ease; /* Only transition transform */
         }
 
         /* Animation for message appearance */
@@ -931,10 +932,11 @@
                     // Update CSS variable for the pulse circle in the mute area
                     const pulseCircle = muteArea.querySelector('.pulse-circle');
                     if (pulseCircle) {
-                        // Scale from 1 (no sound) to 1.5 (max sound)
-                        pulseCircle.style.setProperty('--audio-level', 1 + audioLevel * 0.5);
-                        // Adjust opacity: Start at 0.6 (always visible red) and go up to 1.0 (brighter red)
-                        pulseCircle.style.opacity = 0.6 + audioLevel * 0.4;
+                        // Scale from 0.8 (no sound) to 1.5 (max sound)
+                        const scale = 0.8 + audioLevel * 0.7;
+                        pulseCircle.style.setProperty('--audio-level', scale);
+                        // Opacity is now fixed at 1 via CSS, no need to set it here.
+                        // pulseCircle.style.opacity = 1; // Removed opacity update
                     }
 
                     animationFrame = requestAnimationFrame(updateAudioLevel);
@@ -1583,8 +1585,9 @@
             // Reset pulse circle scale and opacity
             const pulseCircle = muteArea.querySelector('.pulse-circle');
             if (pulseCircle) {
-                pulseCircle.style.setProperty('--audio-level', 1);
-                pulseCircle.style.opacity = 0.6; // Reset opacity to base visible level
+                pulseCircle.style.setProperty('--audio-level', 0.8); // Reset scale to base (silent) size
+                // Opacity is fixed via CSS, no need to reset here
+                // pulseCircle.style.opacity = 1;
             }
             updateStatusIndicator('idle'); // Ensure status is idle when stopped
             console.log('Stop function finished.');

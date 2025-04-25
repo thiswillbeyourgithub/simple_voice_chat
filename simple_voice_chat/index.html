@@ -371,11 +371,11 @@
         }
 
         .pulse-circle {
-            width: 20px;
-            height: 20px;
+            width: 30px; /* Increased size */
+            height: 30px; /* Increased size */
             border-radius: 50%;
-            background-color: #ffffff;
-            opacity: 0.2;
+            background-color: red; /* Changed color to red */
+            opacity: 0.2; /* Keep initial opacity low */
             flex-shrink: 0;
             transform: scale(var(--audio-level, 1));
             transition: transform 0.1s ease;
@@ -904,6 +904,8 @@
                     if (pulseCircle) {
                         // Scale from 1 (no sound) to 1.5 (max sound)
                         pulseCircle.style.setProperty('--audio-level', 1 + audioLevel * 0.5);
+                        // Adjust opacity based on audio level for better visibility
+                        pulseCircle.style.opacity = 0.2 + audioLevel * 0.8; // Fade in as volume increases
                     }
 
                     animationFrame = requestAnimationFrame(updateAudioLevel);
@@ -1549,10 +1551,11 @@
             muteButton.removeEventListener('click', toggleMute);
             updateButtonState(); // Reset button to initial state
             audioLevel = 0;
-            // Reset pulse circle
+            // Reset pulse circle scale and opacity
             const pulseCircle = muteArea.querySelector('.pulse-circle');
             if (pulseCircle) {
                 pulseCircle.style.setProperty('--audio-level', 1);
+                pulseCircle.style.opacity = 0.2; // Reset opacity
             }
             updateStatusIndicator('idle'); // Ensure status is idle when stopped
             console.log('Stop function finished.');

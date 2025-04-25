@@ -18,7 +18,7 @@ def _read_readme(filename="README.md"):
 VERSION = "1.0.0" # Default fallback
 try:
     # Read version from the main script within the package
-    main_script_path = Path(__file__).parent / "universal_voice_chat" / "universal_voice_chat.py"
+    main_script_path = Path(__file__).parent / "simple_voice_chat" / "simple_voice_chat.py"
     with open(main_script_path, encoding="utf-8") as f:
         for line in f:
             if line.startswith("APP_VERSION ="):
@@ -30,11 +30,11 @@ except Exception as e:
 
 
 setuptools.setup(
-    name="universal-voice-chat", # CHANGEME: Verify or change the package name
+    name="simple-voice-chat", # CHANGEME: Verify or change the package name
     version=VERSION,
     author="CHANGEME: Your Name or Organization",
     author_email="CHANGEME: your.email@example.com",
-    description="A universal voice chat interface using configurable LLM, STT, and TTS providers.", # CHANGEME: Improve description if needed
+    description="A simple voice chat interface using configurable LLM, STT, and TTS providers.", # CHANGEME: Improve description if needed
     long_description=_read_readme(),
     long_description_content_type="text/markdown",
     url="CHANGEME: https://github.com/your_username/your_repo", # CHANGEME: Add project URL
@@ -48,9 +48,9 @@ setuptools.setup(
     # Or use include_package_data=True and package_data dictionary
     include_package_data=True,
     package_data={
-        # If 'universal_voice_chat' contains non-python files needed at runtime
-        # Example: 'universal_voice_chat': ['index.html', 'static/*']
-        'universal_voice_chat': ['index.html'], # Include index.html
+        # If 'simple_voice_chat' contains non-python files needed at runtime
+        # Example: 'simple_voice_chat': ['index.html', 'static/*']
+        'simple_voice_chat': ['index.html'], # Include index.html
         # Add other necessary non-code files here
     },
 
@@ -76,8 +76,8 @@ setuptools.setup(
     # Define entry points, e.g., console scripts
     entry_points={
         "console_scripts": [
-            # Correctly point to the main function within the universal_voice_chat module
-            "universal-voice-chat=universal_voice_chat.universal_voice_chat:main",
+            # Correctly point to the main function within the simple_voice_chat module
+            "simple-voice-chat=simple_voice_chat.simple_voice_chat:main",
         ],
     },
 
@@ -111,5 +111,5 @@ setuptools.setup(
 print("\n--- setup.py finished ---")
 print("Remember to review and update all 'CHANGEME' placeholders.")
 # Note: The console_scripts entry point now correctly points to the main() function.
-# The application can also be run using `python -m universal_voice_chat`.
+# The application can also be run using `python -m simple_voice_chat`.
 

@@ -1038,7 +1038,7 @@ def main() -> int:
 
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(
-        description="Run a universal voice chat interface using a configurable LLM provider, STT server, and TTS."
+        description="Run a simple voice chat interface using a configurable LLM provider, STT server, and TTS."
     )
 
     # --- General Arguments ---
@@ -1742,7 +1742,7 @@ def main() -> int:
             api = Api(None)  # pywebview API instance
             # Store window object globally for monitor thread access
             pywebview_window = webview.create_window(
-                f"Universal Voice Chat v{APP_VERSION}",
+                f"Simple Voice Chat v{APP_VERSION}",
                 url,
                 width=800,
                 height=800,
@@ -1810,6 +1810,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    # This block is now only executed when running the script directly (python universal_voice_chat.py)
+    # This block is now only executed when running the script directly (python simple_voice_chat.py)
     # It calls the main() function which contains all the setup and execution logic.
     sys.exit(main())

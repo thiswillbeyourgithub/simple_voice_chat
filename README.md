@@ -1,4 +1,4 @@
-# Universal Voice Chat
+# Simple Voice Chat
 
 This project provides a flexible voice chat interface that connects to various Speech-to-Text (STT), Large Language Model (LLM), and Text-to-Speech (TTS) services.
 
@@ -32,9 +32,9 @@ The primary motivation for creating this project was the high cost associated wi
 
     ```bash
 
-    git clone https://github.com/thiswillbeyourgithub/universal_voice_chat
+    git clone https://github.com/thiswillbeyourgithub/simple_voice_chat
 
-    cd universal_voice_chat
+    cd simple_voice_chat
 
     ```
 
@@ -58,7 +58,7 @@ Run the main script using Python:
 
 
 ```bash
-python universal_voice_chat.py [OPTIONS]
+python simple_voice_chat.py [OPTIONS]
 ```
 
 
@@ -72,7 +72,7 @@ The application will start a web server and attempt to open the interface in a d
 
 
 ```bash
-python universal_voice_chat.py --help
+python simple_voice_chat.py --help
 ```
 
 
@@ -84,7 +84,7 @@ corresponding environment variables.
 <details>
 <summary>Command-Line Options (--help)</summary>
 <pre><code>
-usage: universal_voice_chat.py [-h] [--host HOST] [--port PORT] [-v]
+usage: simple_voice_chat.py [-h] [--host HOST] [--port PORT] [-v]
                                [--auto-start | --no-auto-start] [--browser]
                                [--system-message SYSTEM_MESSAGE]
                                [--llm-host LLM_HOST] [--llm-port LLM_PORT]
@@ -103,7 +103,7 @@ usage: universal_voice_chat.py [-h] [--host HOST] [--port PORT] [-v]
                                [--tts-speed TTS_SPEED]
                                [--tts-acronym-preserve-list TTS_ACRONYM_PRESERVE_LIST]
 
-Run a universal voice chat interface using a configurable LLM provider, STT
+Run a simple voice chat interface using a configurable LLM provider, STT
 server, and TTS.
 
 options:

@@ -10,20 +10,25 @@ This project provides a flexible voice chat interface that connects to various S
 
 The primary motivation for creating this project was the high cost associated with OpenAI's real-time voice API. This application allows you to leverage potentially more cost-effective or self-hosted alternatives for STT, LLM, and TTS, while still providing a near real-time voice interaction experience.
 
-
 ## Features
 
-*   **Modular:** Connect to different STT, LLM (including local models via proxies like LiteLLM), and TTS providers.
-    *   **STT:** Defaults to using [Speaches](https://github.com/speaches-ai/speaches) (which allows self-hosting Faster Whisper), but can also connect directly to OpenAI's Whisper API.
-    *   **TTS:** Defaults to OpenAI TTS, but also supports alternatives like [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI).
-    *   **LLM:** Supports virtually any LLM provider (OpenAI, Anthropic, Google, Mistral, Cohere, Azure, local models, etc.) thanks to its integration with [LiteLLM](https://github.com/BerriAI/litellm/). You can connect to any OpenAI-compatible API endpoint, including local models served via proxies like LiteLLM itself, vLLM, or Ollama.
-
-*   **Configurable:** Fine-tune various parameters for STT confidence, TTS voice/speed, LLM model selection, and more via command-line arguments or environment variables.
-
-*   **Web Interface:** Provides a simple web-based UI for interaction.
-
-*   **Cost Tracking:** Includes basic cost estimation for supported LLM and TTS providers (like OpenAI).
-
+*   🔌 **Modular Architecture:** Easily connect to various STT, LLM, and TTS services.
+    *   🗣️ **STT:** Supports OpenAI Whisper API or self-hosted engines like [Speaches](https://github.com/speaches-ai/speaches) (Faster Whisper).
+    *   🧠 **LLM:** Integrates with [LiteLLM](https://github.com/BerriAI/litellm), enabling connections to OpenAI, Anthropic, Google, Mistral, Cohere, Azure, local models (via LiteLLM proxy, vLLM, Ollama), and more.
+    *   🔊 **TTS:** Supports OpenAI TTS API or alternatives like [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI).
+*   ⚙️ **Highly Configurable:** Adjust STT/LLM/TTS hosts, ports, models, API keys, STT confidence thresholds, TTS voice/speed, system messages, and more via CLI arguments or `.env` file.
+*   🌐 **Web Interface:** Simple and responsive UI built with HTML, CSS, and JavaScript.
+*   📊 **Cost Tracking:** Real-time cost estimation for OpenAI LLM and TTS usage.
+*   ⚡ **Real-time Interaction:** Low-latency voice communication powered by [fastrtc](https://github.com/gradio-app/fastrtc) (WebRTC).
+*   👂 **STT Confidence Filtering:** Automatically reject low-confidence transcriptions based on configurable thresholds (no speech probability, average log probability, minimum word count).
+*   🎤 **Dynamic Voice/Model Selection:** Change LLM model, TTS voice, TTS speed, and STT language on-the-fly through the UI without restarting.
+*   🔍 **Fuzzy Search:** Quickly find models and voices using fuzzy search in the UI dropdowns.
+*   💬 **System Message Support:** Define a custom system message to guide the LLM's behavior.
+*   📝 **Chat History Logging:** Automatically saves conversation history to timestamped JSON files.
+*   🔄 **TTS Audio Replay:** Replay the audio for any assistant message directly from the chat interface.
+*   ⌨️ **Keyboard Shortcuts:** Control mute (M), clear chat (Ctrl+R), and toggle options (Shift+S) using keyboard shortcuts.
+*   💓 **Connection Monitoring:** Uses a heartbeat mechanism to detect disconnected clients and potentially shut down the server.
+*   🖥️ **Cross-Platform GUI:** Runs as a standalone desktop application using `pywebview` (default) or in a standard web browser (`--browser` flag).
 
 ## Installation
 

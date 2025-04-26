@@ -920,7 +920,8 @@
                 startButton.classList.add('icon-with-spinner'); // Ensure class is added
                 modelInput.disabled = true; // Changed from modelSelect
                 voiceSelect.disabled = true;
-                clearChatButton.disabled = true;
+                clearChatButton.style.display = 'none'; // Hide clear chat button
+                optionsButton.style.display = 'none'; // Hide options button
 
             } else if (isConnected) {
                 // Hide Start Button, Show Mute Controls
@@ -932,7 +933,10 @@
 
                 modelInput.disabled = false; // Allow changing model while connected // Changed from modelSelect
                 voiceSelect.disabled = false;
-                clearChatButton.disabled = false;
+                clearChatButton.disabled = false; // Enable clear chat button
+                clearChatButton.style.display = 'inline-flex'; // Show clear chat button
+                optionsButton.disabled = false; // Enable options button
+                optionsButton.style.display = 'inline-flex'; // Show options button
 
                 // Update mute button icon/text
                 muteButton.innerHTML = '';
@@ -958,6 +962,9 @@
                 modelInput.disabled = false; // Changed from modelSelect
                 voiceSelect.disabled = false; // Enable voice select
                 clearChatButton.disabled = false; // Enable clear chat button
+                clearChatButton.style.display = 'inline-flex'; // Show clear chat button
+                optionsButton.disabled = false; // Enable options button
+                optionsButton.style.display = 'inline-flex'; // Show options button
 
                 const text = document.createElement('span'); // Reset text to "Start"
                 text.textContent = 'Start';
@@ -976,7 +983,7 @@
                 optionsIcon.style.height = '20px';
                 optionsIcon.innerHTML = optionsIconSVG;
                 optionsButton.appendChild(optionsIcon);
-                optionsButton.disabled = false; // Enable options button when not connecting
+                // optionsButton.disabled = false; // Already handled in isConnected/else blocks
 
                 // Clear Chat Button Icon
                 clearChatButton.innerHTML = ''; // Clear previous content
@@ -986,10 +993,10 @@
                 trashIcon.innerHTML = trashIconSVG;
                 clearChatButton.appendChild(trashIcon);
             } else {
-                // Clear icons and disable options button when connecting
+                // Clear icons when connecting (buttons are hidden anyway)
                 optionsButton.innerHTML = '';
-                optionsButton.disabled = true;
                 clearChatButton.innerHTML = '';
+                // Disabling is handled elsewhere, hiding is the primary action now
             }
 
             // Disable options row elements based on state as well

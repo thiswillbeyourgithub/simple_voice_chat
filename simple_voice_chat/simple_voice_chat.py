@@ -178,8 +178,18 @@ async def response(
     logger.info(
         f"--- Entering response function with history length: {len(current_chatbot)} ---"
     )
-    # Use the copy for generating messages for the LLM
-    messages = [{"role": d["role"], "content": d["content"]} for d in current_chatbot]
+    # Extract only role and content for sending to the LLM API
+    # Handle both old dict format and new ChatMessage model format during transition if needed,
+    # but current_chatbot should ideally contain ChatMessage objects or dicts matching its structure.
+    messages = []
+    for item in current_chatbot:
+        if isinstance(item, dict):
+            messages.append({"role": item["role"], "content": item["content"]})
+        elif hasattr(item, 'role') and hasattr(item, 'content'): # Check if it looks like ChatMessage
+             messages.append({"role": item.role, "content": item.content})
+        else:
+            logger.warning(f"Skipping unexpected item in chatbot history: {item}")
+
 
     # Add system message if defined
     if SYSTEM_MESSAGE:
@@ -243,15 +253,22 @@ async def response(
     # --- STT Confidence Check using imported function ---
     # Pass threshold values from args object (needs access)
     reject_transcription, rejection_reason = check_stt_confidence(
-        stt_response_obj,
-        prompt,
-        args.stt_no_speech_prob_threshold,  # From args (needs access)
-        args.stt_avg_logprob_threshold,  # From args (needs access)
-        args.stt_min_words_threshold,  # From args (needs access)
+        stt_response_obj, # The full response object from STT
+        prompt, # The transcribed text
+        args.stt_no_speech_prob_threshold,
+        args.stt_avg_logprob_threshold,
+        args.stt_min_words_threshold,
     )
+    # Store relevant STT details for potential metadata logging
+    stt_metadata_details = {}
+    if hasattr(stt_response_obj, 'no_speech_prob'):
+        stt_metadata_details['no_speech_prob'] = stt_response_obj.no_speech_prob
+    if hasattr(stt_response_obj, 'avg_logprob'):
+        stt_metadata_details['avg_logprob'] = stt_response_obj.avg_logprob
+    # Add word count if needed: stt_metadata_details['word_count'] = len(prompt.split())
 
     if reject_transcription:
-        logger.warning(f"STT confidence check failed: {rejection_reason}")
+        logger.warning(f"STT confidence check failed: {rejection_reason}. Details: {stt_metadata_details}")
         # Yield status updates to go back to idle without processing this prompt
         yield AdditionalOutputs(
             {
@@ -273,13 +290,21 @@ async def response(
         return
 
     # --- Proceed if STT successful and confidence check passed ---
-    # Yield user message update and add to the *copy*
-    user_message = {"role": "user", "content": prompt}
-    current_chatbot.append(user_message)
-    yield AdditionalOutputs({"type": "chatbot_update", "message": user_message})
-    # Update messages list based on the modified copy
-    messages.append(user_message)
-    # Save history after adding user message
+    # Create user message with metadata
+    user_metadata = ChatMessageMetadata(
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        stt_details=stt_metadata_details if stt_metadata_details else None # Add STT details if available
+    )
+    user_message = ChatMessage(role="user", content=prompt, metadata=user_metadata)
+
+    # Add to the *copy* and yield update (convert to dict for frontend compatibility if needed)
+    current_chatbot.append(user_message.model_dump()) # Store as dict in the list
+    yield AdditionalOutputs({"type": "chatbot_update", "message": user_message.model_dump()})
+
+    # Update messages list (for LLM) based on the modified copy
+    messages.append({"role": user_message.role, "content": user_message.content})
+
+    # Save history after adding user message (save_chat_history expects list of dicts)
     save_chat_history(current_chatbot)
 
     # --- Streaming Chat Completion & Concurrent TTS ---
@@ -484,15 +509,30 @@ async def response(
         yield AdditionalOutputs({"type": "cost_update", "data": cost_result})
         logger.info("Cost update yielded.")
 
-        # 2. Add Full Assistant Text Response to History (to the copy)
-        assistant_message = None  # Define outside the 'if'
+        # 2. Add Full Assistant Text Response to History (to the copy) with Metadata
+        assistant_message_obj = None # Define outside the 'if'
         if not llm_error_occurred and full_response_text:
-            assistant_message = {"role": "assistant", "content": full_response_text}
-            # Check against the copy and append to the copy
-            if not current_chatbot or current_chatbot[-1] != assistant_message:
-                current_chatbot.append(assistant_message)
+            # Create assistant message metadata
+            assistant_metadata = ChatMessageMetadata(
+                timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                llm_model=current_llm_model,
+                usage=final_usage_info, # This is the dict from LLM response
+                cost=cost_result # This is the dict calculated earlier {llm_cost..., tts_cost}
+            )
+            # Create the full message object
+            assistant_message_obj = ChatMessage(
+                role="assistant",
+                content=full_response_text,
+                metadata=assistant_metadata
+            )
+            assistant_message_dict = assistant_message_obj.model_dump() # Convert to dict for storage/comparison
+
+            # Check against the copy (comparing dicts) and append to the copy
+            # Avoid appending duplicates if somehow the exact same dict exists at the end
+            if not current_chatbot or current_chatbot[-1] != assistant_message_dict:
+                current_chatbot.append(assistant_message_dict)
                 logger.info(
-                    "Full assistant response added to chatbot history copy for next turn."
+                    "Full assistant response (with metadata) added to chatbot history copy for next turn."
                 )
                 # Save history after adding assistant message
                 save_chat_history(current_chatbot)
@@ -615,16 +655,28 @@ async def response(
     )
 
 
-# --- FastAPI Setup ---
+# --- Pydantic Models ---
 
-class Message(BaseModel):
+class ChatMessageMetadata(BaseModel):
+    """Optional metadata associated with a chat message."""
+    timestamp: Optional[str] = None # ISO format timestamp
+    llm_model: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None # e.g., {'prompt_tokens': 50, 'completion_tokens': 100, 'total_tokens': 150}
+    cost: Optional[Dict[str, Any]] = None # e.g., {'input_cost': 0.0001, 'output_cost': 0.0002, 'total_cost': 0.0003, 'tts_cost': 0.00005}
+    stt_details: Optional[Dict[str, Any]] = None # e.g., {'no_speech_prob': 0.1, 'avg_logprob': -0.2}
+
+class ChatMessage(BaseModel):
+    """Represents a single message in the chat history."""
     role: str
     content: str
+    metadata: Optional[ChatMessageMetadata] = None
 
+# --- FastAPI Setup ---
 
 class InputData(BaseModel):
+    """Model for data received by the /input_hook endpoint."""
     webrtc_id: str
-    chatbot: list[Message]
+    chatbot: list[ChatMessage] # Use the new ChatMessage model
 
 
 # --- Endpoint Definitions ---
@@ -672,10 +724,13 @@ def register_endpoints(app: FastAPI, stream: Stream):
 
     @app.post("/input_hook")
     async def _(body: InputData):
+        # The body.chatbot is now a list of ChatMessage objects thanks to Pydantic validation
+        # Convert them to dictionaries for internal use (e.g., passing to stream handler)
+        # Ensure metadata is preserved if present. model_dump(exclude_none=True) might be useful
+        # if we want to keep the JSON clean, but let's keep all fields for now.
         chatbot_history = [msg.model_dump() for msg in body.chatbot]
-        # Since the handler is now async, setting input might need adjustment
-        # if fastrtc doesn't handle async handler state passing automatically.
-        # Assuming fastrtc handles passing the `chatbot` argument to the async handler correctly.
+
+        # Assuming fastrtc handler `response` expects a list of dictionaries matching ChatMessage structure.
         # If issues arise, we might need to store/retrieve state differently.
         stream.set_input(body.webrtc_id, chatbot_history)  # Keep as is for now
         return {"status": "ok"}

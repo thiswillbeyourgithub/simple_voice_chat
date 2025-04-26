@@ -1940,8 +1940,8 @@ def main() -> int:
                 speech_threshold=0.2,  # Decreased further from 0.1 to bridge pauses even more effectively
             ),
             model_options=SileroVadOptions(
-                # VAD model's internal speech probability threshold. Lower values make it less sensitive to silence (more likely to detect speech). Default: 0.5
-                threshold=0.5,
+                # VAD model's internal speech probability threshold. Higher values make it less sensitive to noise. Default: 0.5
+                threshold=0.6, # Increased from 0.5 to reduce sensitivity
                 # Minimum duration of speech to be considered valid (milliseconds). Higher values ignore short sounds like coughs. Default: 250
                 min_speech_duration_ms=400,  # Kept at 400
                 # Minimum duration of silence after speech to trigger pause (milliseconds). Higher values allow longer pauses. Default: 100

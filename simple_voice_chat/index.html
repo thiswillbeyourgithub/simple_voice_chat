@@ -608,6 +608,8 @@
     <script id="system-message-data" type="application/json">__SYSTEM_MESSAGE_JSON__</script>
     <!-- Placeholder for auto-start flag from backend -->
     <script id="auto-start-data" type="application/json">__AUTO_START_FLAG__</script>
+    <!-- Placeholder for initial STT language from backend -->
+    <script id="stt-language-data" type="application/json">__STT_LANGUAGE_JSON__</script>
     <div class="container">
         <div class="header">
             <!-- New Main Row for Title, Cost, Controls -->
@@ -711,6 +713,7 @@
         // let isUsingMini = true; // Removed
         let selectedModel = ''; // Store the currently selected model name
         let selectedVoice = ""; // Track selected voice in JS, initialized after fetch
+        let selectedSttLanguage = ""; // Track selected STT language
         let chatbotHistory = []; // Added: Store chatbot history for input hook
         let cumulativeInputCost = 0.0; // LLM Input
         let cumulativeOutputCost = 0.0; // LLM Output
@@ -740,6 +743,7 @@
         const modelSuggestions = document.getElementById('model-suggestions');
         const voiceInput = document.getElementById('voice-input'); // Changed from voiceSelect
         const voiceSuggestions = document.getElementById('voice-suggestions'); // Added for datalist
+        const sttLanguageInput = document.getElementById('stt-language-input'); // Added for STT language
         const optionsButton = document.getElementById('options-button'); // Added
         const optionsRow = document.getElementById('options-row'); // Added
         const clearChatButton = document.getElementById('clear-chat-button');
@@ -929,6 +933,7 @@
                 startButton.classList.add('icon-with-spinner'); // Ensure class is added
                 modelInput.disabled = true;
                 voiceInput.disabled = true; // Changed from voiceSelect
+                sttLanguageInput.disabled = true; // Disable STT language input
                 clearChatButton.style.display = 'none'; // Hide clear chat button
                 optionsButton.style.display = 'none'; // Hide options button
                 costDisplayContainer.style.display = 'none'; // Hide cost display
@@ -943,6 +948,7 @@
 
                 modelInput.disabled = false; // Allow changing model while connected
                 voiceInput.disabled = false; // Changed from voiceSelect
+                sttLanguageInput.disabled = false; // Enable STT language input
                 clearChatButton.disabled = false; // Enable clear chat button
                 clearChatButton.style.display = 'inline-flex'; // Show clear chat button
                 optionsButton.disabled = false; // Enable options button
@@ -973,6 +979,7 @@
                 startButton.disabled = false;
                 modelInput.disabled = false;
                 voiceInput.disabled = false; // Enable voice input // Changed from voiceSelect
+                sttLanguageInput.disabled = false; // Enable STT language input
                 clearChatButton.disabled = false; // Enable clear chat button
                 clearChatButton.style.display = 'inline-flex'; // Show clear chat button
                 optionsButton.disabled = false; // Enable options button
@@ -1014,6 +1021,7 @@
             // Disable options row elements based on state as well
             modelInput.disabled = isConnecting;
             voiceInput.disabled = isConnecting; // Changed from voiceSelect
+            sttLanguageInput.disabled = isConnecting; // Disable STT language input when connecting
         }
 
 
@@ -1994,11 +2002,32 @@
         }
         // --- End Fetch Voices ---
 
+        // --- Initialize STT Language Input ---
+        function initializeSttLanguage() {
+            const sttLanguageDataElement = document.getElementById('stt-language-data');
+            let initialLanguage = ''; // Default to empty string
+            if (sttLanguageDataElement) {
+                try {
+                    // Parse the JSON, default to empty string if null/undefined/empty
+                    initialLanguage = JSON.parse(sttLanguageDataElement.textContent || '""') || '';
+                } catch (error) {
+                    console.error("Error parsing initial STT language data:", error);
+                }
+            } else {
+                console.warn("STT language data element not found.");
+            }
+            selectedSttLanguage = initialLanguage; // Store initial value
+            sttLanguageInput.value = initialLanguage; // Set input field value
+            console.log(`Initialized STT language input with: "${selectedSttLanguage}"`);
+        }
+        // --- End Initialize STT Language Input ---
+
 
         // Initialize dropdowns and button state
         updateButtonState(); // Set initial button state on load
         fetchAndPopulateModels(); // Fetch models when the script runs
         fetchAndPopulateVoices(); // Fetch voices when the script runs
+        initializeSttLanguage(); // Initialize STT language input
         displayInitialSystemMessage(); // Display system message after other initial setup
         updateStatusIndicator('idle'); // Ensure indicator is hidden initially
 
@@ -2205,6 +2234,54 @@
                  updateButtonState();
             }
         });
+
+        // --- STT Language Input Change Handler ---
+        sttLanguageInput.addEventListener('change', async () => { // Use 'change' to trigger on blur/enter
+            const newLanguage = sttLanguageInput.value.trim(); // Get value and trim
+            const previousLanguage = selectedSttLanguage;
+            console.log(`STT Language input changed to: "${newLanguage}"`);
+
+            // If the language hasn't actually changed, do nothing
+            if (newLanguage === previousLanguage) {
+                console.log("STT Language hasn't changed. No action needed.");
+                return;
+            }
+
+            try {
+                // Call the server endpoint to switch the STT language preference
+                const response = await fetch('/switch_stt_language', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ stt_language: newLanguage }) // Send the new language
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Failed to switch STT language (${response.status})`);
+                }
+
+                const result = await response.json();
+                selectedSttLanguage = newLanguage; // Update JS state *after* successful confirmation
+
+                // Display notification
+                let message = newLanguage
+                    ? `STT language set to '${newLanguage}'. Change will apply to the next transcription.`
+                    : `STT language cleared (will use auto-detect). Change will apply to the next transcription.`;
+                showToast(message, "warning");
+
+            } catch (error) {
+                console.error('Error switching STT language:', error);
+                showToast(`Error setting STT language: ${error.message}`, 'error');
+                // Revert input field and local state if switch failed
+                sttLanguageInput.value = previousLanguage;
+                selectedSttLanguage = previousLanguage;
+            } finally {
+                // Ensure button state is updated (might not be needed, but safe)
+                updateButtonState();
+            }
+        });
+        // --- End STT Language Input Change Handler ---
+
 
         // --- Model Input Fuzzy Search & Datalist Update ---
         modelInput.addEventListener('input', () => {

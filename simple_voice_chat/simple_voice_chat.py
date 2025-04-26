@@ -216,12 +216,12 @@ async def response(
 
     # --- Speech-to-Text using imported function ---
     # Pass config values from args object (accessed via main's scope or global) and initialized client/base_url
-    # Need access to args parsed in main()
+    # Use the current_stt_language global variable
     stt_success, prompt, stt_response_obj, stt_error = await transcribe_audio(
         audio,
         stt_client,  # Initialized client
         args.stt_model,  # From args (needs access)
-        args.stt_language,  # From args (needs access)
+        current_stt_language,  # Use the global variable
         stt_api_base,  # Derived from args
     )
 
@@ -714,11 +714,14 @@ def register_endpoints(app: FastAPI, stream: Stream):
             "__SYSTEM_MESSAGE_JSON__", json.dumps(SYSTEM_MESSAGE)
         )
         # Inject the auto-start flag (from args)
-        html_content = html_content.replace(
             "__AUTO_START_FLAG__", json.dumps(args.auto_start)
         )
         # Inject the application version
         html_content = html_content.replace("__APP_VERSION__", APP_VERSION)
+        # Inject the initial STT language (using the final current_stt_language string)
+        html_content = html_content.replace(
+            "__STT_LANGUAGE_JSON__", json.dumps(current_stt_language)
+        )
 
         return HTMLResponse(content=html_content, status_code=200)
 
@@ -876,6 +879,52 @@ def register_endpoints(app: FastAPI, stream: Stream):
             )
 
     # --- End Switch Voice Endpoint ---
+
+    # --- Endpoint to Switch STT Language ---
+    @app.post("/switch_stt_language")
+    async def switch_stt_language(request: Request):
+        global current_stt_language  # Need global to modify module-level state
+        try:
+            data = await request.json()
+            # Allow empty string to clear the language setting (use auto-detect)
+            new_language = data.get("stt_language", None) # Get value, None if key missing
+
+            # Normalize empty string or None to None for internal consistency
+            if new_language is not None and not new_language.strip():
+                new_language = None
+            elif new_language is not None:
+                new_language = new_language.strip() # Use stripped value if not empty
+
+            if new_language != current_stt_language:
+                current_stt_language = new_language
+                logger.info(
+                    f"Switched active STT language to: '{current_stt_language}' (None means auto-detect)"
+                )
+                return JSONResponse(
+                    {"status": "success", "stt_language": current_stt_language}
+                )
+            else:
+                logger.info(
+                    f"STT language already set to: '{current_stt_language}'"
+                )
+                return JSONResponse(
+                    {"status": "success", "stt_language": current_stt_language}
+                ) # Still success
+
+        except json.JSONDecodeError:
+            logger.error("Failed to decode JSON body in /switch_stt_language")
+            return JSONResponse(
+                {"status": "error", "message": "Invalid JSON format in request body"},
+                status_code=400,
+            )
+        except Exception as e:
+            logger.error(f"Error processing /switch_stt_language request: {e}")
+            return JSONResponse(
+                {"status": "error", "message": f"Internal server error: {e}"},
+                status_code=500,
+            )
+    # --- End Switch STT Language Endpoint ---
+
 
     # --- Endpoint to Switch Model ---
     @app.post("/switch_model")
@@ -1098,7 +1147,7 @@ def main() -> int:
     global args, llm_api_base, stt_api_base, tts_base_url, use_llm_proxy
     global TTS_ACRONYM_PRESERVE_SET, SYSTEM_MESSAGE, APP_PORT, IS_OPENAI_TTS, IS_OPENAI_STT
     global AVAILABLE_MODELS, MODEL_COST_DATA, current_llm_model, AVAILABLE_VOICES_TTS
-    global selected_voice, tts_client, stt_client
+    global selected_voice, current_stt_language, tts_client, stt_client
     global uvicorn_server, pywebview_window  # For server/window management
     global CHAT_LOG_DIR, STARTUP_TIMESTAMP_STR  # For chat logging
 
@@ -1198,7 +1247,7 @@ def main() -> int:
         "--stt-language",
         type=str,
         default=STT_LANGUAGE_ENV,  # Default from env
-        help="Language code for STT (e.g., 'en', 'fr'). If unset, Whisper usually auto-detects. Default: None. (Env: STT_LANGUAGE)",
+        help="Language code for STT (e.g., 'en', 'fr'). If unset (empty string or not provided), Whisper usually auto-detects. Default: None. (Env: STT_LANGUAGE)",
     )
     parser.add_argument(
         "--stt-api-key",

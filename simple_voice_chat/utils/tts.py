@@ -194,10 +194,10 @@ async def generate_tts_for_sentence(
                     logger.info(
                         f"Finished TTS task for processed sentence after {time.time() - start_tts:.2f}s on attempt {attempt + 1} ({byte_count} bytes), saved to '{temp_filepath}'"
                     )
-                    return temp_filepath # Return the Path object
+                    return temp_filename # Return the filename string
 
                 except Exception as file_e:
-                    logger.error(f"Failed to save TTS audio to temporary file: {file_e}")
+                    logger.error(f"Failed to save TTS audio to temporary file '{temp_filepath}': {file_e}")
                     last_tts_exception = file_e # Store file saving error as the last exception
                     # Fall through to retry logic if applicable
 

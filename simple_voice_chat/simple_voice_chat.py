@@ -493,51 +493,6 @@ async def response(
                                 f"TTS failed for sentence, skipping audio yield and file save: '{sentence[:50]}...'"
                             )
 
-        # After the loop, process any remaining text in the buffer
-        remaining_sentence = sentence_buffer.strip()
-        if remaining_sentence:
-            # Count characters for TTS cost calculation
-            total_tts_chars += len(remaining_sentence)
-            # Yield audio for the remaining buffer immediately
-            logger.debug(
-                f"Generating TTS for remaining buffer: '{remaining_sentence[:50]}...' ({len(remaining_sentence)} chars)"
-            )
-            # Pass TTS config values from args, module-level state/clients, and the temp dir
-            audio_file_path: Optional[Path] = await generate_tts_for_sentence(
-                remaining_sentence,
-                tts_client,  # Initialized client
-                args.tts_model,  # From args (needs access)
-                selected_voice,  # Current selected voice (module-level)
-                args.tts_speed,  # From args (needs access)
-                TTS_ACRONYM_PRESERVE_SET,  # Derived from args (module-level)
-                TTS_AUDIO_DIR, # Pass the temp directory
-            )
-             # generate_tts_for_sentence now returns the filename (str) or None
-            if audio_file_path: # This is now the filename string
-                tts_audio_file_paths.append(audio_file_path) # Store the filename string directly
-                full_audio_file_path = TTS_AUDIO_DIR / audio_file_path # Reconstruct full path for reading
-                logger.debug(f"TTS audio saved to: {full_audio_file_path}")
-                # Read audio from file for streaming playback
-                try:
-                    # Run synchronous pydub decoding in a thread
-                    audio_segment = await asyncio.to_thread(
-                        AudioSegment.from_file, full_audio_file_path, format="mp3" # Use full path here
-                    )
-                    sample_rate = audio_segment.frame_rate
-                    samples = np.array(audio_segment.get_array_of_samples()).astype(
-                        np.int16
-                    )
-                    logger.debug(
-                        f"Yielding audio chunk from file '{audio_file_path}' for remaining buffer: '{remaining_sentence[:50]}...'" # Log filename
-                    )
-                    yield (sample_rate, samples) # Yield decoded audio for playback
-                except Exception as read_e:
-                    logger.error(f"Failed to read/decode TTS audio file {full_audio_file_path}: {read_e}") # Log full path on error
-            else:
-                logger.warning(
-                    f"TTS failed for remaining buffer, skipping audio yield and file save: '{remaining_sentence[:50]}...'"
-                )
-
         llm_end_time = time.time()
         logger.info(
             f"LLM streaming finished ({llm_end_time - llm_start_time:.2f}s). Full response length: {len(full_response_text)}"

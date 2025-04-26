@@ -734,6 +734,8 @@
     <script id="system-message-data" type="application/json">__SYSTEM_MESSAGE_JSON__</script>
     <!-- Placeholder for initial STT language from backend -->
     <script id="stt-language-data" type="application/json">__STT_LANGUAGE_JSON__</script>
+    <!-- Placeholder for initial TTS speed from backend -->
+    <script id="tts-speed-data" type="application/json">__TTS_SPEED_JSON__</script>
     <!-- Placeholder for startup timestamp from backend -->
     <script id="startup-timestamp-data" type="application/json">__STARTUP_TIMESTAMP_STR__</script>
     <div class="container">
@@ -824,6 +826,12 @@
                    <input type="text" id="stt-language-input" class="styled-select" placeholder="STT Language (e.g., en)"> <!-- Reusing styled-select class -->
                </div>
                <!-- End STT Language Input -->
+               <!-- TTS Speed Input -->
+               <div class="select-container"> <!-- Reusing container for layout -->
+                   <label for="tts-speed-input" class="visually-hidden">TTS Speed:</label>
+                   <input type="number" id="tts-speed-input" class="styled-select" placeholder="TTS Speed (0.1-4.0)" min="0.1" max="4.0" step="0.1"> <!-- Reusing styled-select class -->
+               </div>
+               <!-- End TTS Speed Input -->
                <!-- Debug Button Removed -->
            </div>
            <!-- End Options Row -->
@@ -849,6 +857,7 @@
         let selectedModel = ''; // Store the currently selected model name
         let selectedVoice = ""; // Track selected voice in JS, initialized after fetch
         let selectedSttLanguage = ""; // Track selected STT language
+        let selectedTtsSpeed = 1.0; // Track selected TTS speed, default 1.0
         let startupTimestampStr = ""; // Added: Store startup timestamp for audio URLs
         let chatbotHistory = []; // Added: Store chatbot history for input hook
         let cumulativeInputCost = 0.0; // LLM Input
@@ -879,6 +888,7 @@
         const voiceInput = document.getElementById('voice-input'); // Changed from voiceSelect
         const voiceSuggestions = document.getElementById('voice-suggestions'); // Added for datalist
         const sttLanguageInput = document.getElementById('stt-language-input'); // Added for STT language
+        const ttsSpeedInput = document.getElementById('tts-speed-input'); // Added for TTS speed
         const optionsButton = document.getElementById('options-button'); // Added
         const optionsRow = document.getElementById('options-row'); // Added
         const clearChatButton = document.getElementById('clear-chat-button');
@@ -1091,6 +1101,7 @@
             modelInput.disabled = !isConnected;
             voiceInput.disabled = !isConnected;
             sttLanguageInput.disabled = !isConnected;
+            ttsSpeedInput.disabled = !isConnected; // Disable TTS speed input
             clearChatButton.disabled = !isConnected;
             optionsButton.disabled = !isConnected;
 
@@ -1130,6 +1141,7 @@
                 modelInput.disabled = true;
                 voiceInput.disabled = true;
                 sttLanguageInput.disabled = true;
+                ttsSpeedInput.disabled = true; // Disable TTS speed input
                 clearChatButton.disabled = true;
                 optionsButton.disabled = true;
 
@@ -1185,6 +1197,7 @@
             modelInput.disabled = !isConnected;
             voiceInput.disabled = !isConnected;
             sttLanguageInput.disabled = !isConnected;
+            ttsSpeedInput.disabled = !isConnected; // Disable TTS speed input
             // debugButton.disabled = !isConnected; // Disable button if not connected - Removed
         }
 
@@ -2384,12 +2397,38 @@
         }
         // --- End Initialize STT Language Input ---
 
+        // --- Initialize TTS Speed Input ---
+        function initializeTtsSpeed() {
+            const ttsSpeedDataElement = document.getElementById('tts-speed-data');
+            let initialSpeed = 1.0; // Default speed
+            if (ttsSpeedDataElement) {
+                try {
+                    // Parse the JSON, default to 1.0 if null/undefined/invalid
+                    const parsedSpeed = JSON.parse(ttsSpeedDataElement.textContent || '1.0');
+                    if (typeof parsedSpeed === 'number' && parsedSpeed >= 0.1 && parsedSpeed <= 4.0) {
+                        initialSpeed = parsedSpeed;
+                    } else {
+                         console.warn(`Invalid initial TTS speed data: ${parsedSpeed}. Using default 1.0.`);
+                    }
+                } catch (error) {
+                    console.error("Error parsing initial TTS speed data:", error);
+                }
+            } else {
+                console.warn("TTS speed data element not found.");
+            }
+            selectedTtsSpeed = initialSpeed; // Store initial value
+            ttsSpeedInput.value = initialSpeed.toFixed(1); // Set input field value, formatted to one decimal
+            console.log(`Initialized TTS speed input with: "${selectedTtsSpeed}"`);
+        }
+        // --- End Initialize TTS Speed Input ---
+
 
         // Initialize dropdowns and button state
         updateButtonState(); // Set initial button state on load
         fetchAndPopulateModels(); // Fetch models when the script runs
         fetchAndPopulateVoices(); // Fetch voices when the script runs
         initializeSttLanguage(); // Initialize STT language input
+        initializeTtsSpeed(); // Initialize TTS speed input
 
         // --- Initialize Startup Timestamp ---
         function initializeStartupTimestamp() {
@@ -2688,6 +2727,69 @@
             }
         });
         // --- End STT Language Input Change Handler ---
+
+        // --- TTS Speed Input Change Handler ---
+        ttsSpeedInput.addEventListener('change', async () => { // Use 'change' to trigger on blur/enter/step
+            const newSpeedStr = ttsSpeedInput.value;
+            let newSpeed;
+            try {
+                newSpeed = parseFloat(newSpeedStr);
+                if (isNaN(newSpeed) || newSpeed < 0.1 || newSpeed > 4.0) {
+                    throw new Error("Invalid speed value.");
+                }
+                // Format to one decimal place for consistency if needed, but backend handles float
+                newSpeed = parseFloat(newSpeed.toFixed(1));
+            } catch (error) {
+                console.warn(`Invalid TTS speed input: "${newSpeedStr}". Reverting.`);
+                showToast(`Invalid TTS speed. Must be between 0.1 and 4.0.`, 'warning');
+                ttsSpeedInput.value = selectedTtsSpeed.toFixed(1); // Revert input field
+                return; // Stop processing
+            }
+
+            const previousSpeed = selectedTtsSpeed;
+            console.log(`TTS Speed input changed to: "${newSpeed}"`);
+
+            // If the speed hasn't actually changed, do nothing
+            if (newSpeed === previousSpeed) {
+                console.log("TTS Speed hasn't changed. No action needed.");
+                // Ensure input reflects the stored value precisely (e.g., 1 -> 1.0)
+                ttsSpeedInput.value = selectedTtsSpeed.toFixed(1);
+                return;
+            }
+
+            try {
+                // Call the server endpoint to switch the TTS speed preference
+                const response = await fetch('/switch_tts_speed', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ tts_speed: newSpeed }) // Send the new speed
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Failed to switch TTS speed (${response.status})`);
+                }
+
+                const result = await response.json();
+                selectedTtsSpeed = newSpeed; // Update JS state *after* successful confirmation
+                ttsSpeedInput.value = selectedTtsSpeed.toFixed(1); // Update input field to formatted value
+
+                // Display notification
+                let message = `TTS speed set to ${selectedTtsSpeed.toFixed(1)}. Change will apply to the next AI response.`;
+                showToast(message, "warning");
+
+            } catch (error) {
+                console.error('Error switching TTS speed:', error);
+                showToast(`Error setting TTS speed: ${error.message}`, 'error');
+                // Revert input field and local state if switch failed
+                ttsSpeedInput.value = previousSpeed.toFixed(1);
+                selectedTtsSpeed = previousSpeed;
+            } finally {
+                // Ensure button state is updated (might not be needed, but safe)
+                updateButtonState();
+            }
+        });
+        // --- End TTS Speed Input Change Handler ---
 
 
         // --- Model Input Fuzzy Search & Datalist Update ---

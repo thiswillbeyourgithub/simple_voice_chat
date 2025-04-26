@@ -130,6 +130,7 @@ selected_voice: Optional[str] = None  # Set after parsing args and checking avai
 current_stt_language: Optional[
     str
 ] = None  # Set after parsing args, holds current STT lang
+current_tts_speed: float = 1.0 # Set after parsing args, holds current TTS speed
 
 # --- Clients (Initialized after parsing args) ---
 tts_client: Optional[OpenAI] = None
@@ -417,7 +418,7 @@ async def response(
                             tts_client,  # Initialized client
                             args.tts_model,  # From args (needs access)
                             selected_voice,  # Current selected voice (module-level)
-                            args.tts_speed,  # From args (needs access)
+                            current_tts_speed,  # Use global state variable
                             TTS_ACRONYM_PRESERVE_SET,  # Derived from args (module-level)
                             TTS_AUDIO_DIR, # Pass the temp directory
                         )
@@ -446,8 +447,6 @@ async def response(
                             logger.warning(
                                 f"TTS failed for sentence, skipping audio yield and file save: '{sentence[:50]}...'"
                             )
-                    else: # Corrected indentation
-                        logger.debug("Skipping empty line for TTS task.")
 
         # After the loop, process any remaining text in the buffer
         remaining_sentence = sentence_buffer.strip()
@@ -464,7 +463,7 @@ async def response(
                 tts_client,  # Initialized client
                 args.tts_model,  # From args (needs access)
                 selected_voice,  # Current selected voice (module-level)
-                args.tts_speed,  # From args (needs access)
+                current_tts_speed,  # Use global state variable
                 TTS_ACRONYM_PRESERVE_SET,  # Derived from args (module-level)
                 TTS_AUDIO_DIR, # Pass the temp directory
             )
@@ -493,8 +492,6 @@ async def response(
                 logger.warning(
                                 f"TTS failed for sentence, skipping audio yield and file save: '{sentence[:50]}...'"
                             )
-                    else:
-                        logger.debug("Skipping empty line for TTS task.")
 
         # After the loop, process any remaining text in the buffer
         remaining_sentence = sentence_buffer.strip()
@@ -818,6 +815,10 @@ def register_endpoints(app: FastAPI, stream: Stream):
         html_content = html_content.replace(
             "__STT_LANGUAGE_JSON__", json.dumps(current_stt_language)
         )
+        # Inject the initial TTS speed
+        html_content = html_content.replace(
+            "__TTS_SPEED_JSON__", json.dumps(current_tts_speed)
+        )
         # Inject the startup timestamp string
         html_content = html_content.replace(
             "__STARTUP_TIMESTAMP_STR__", json.dumps(STARTUP_TIMESTAMP_STR)
@@ -1026,6 +1027,62 @@ def register_endpoints(app: FastAPI, stream: Stream):
             )
     # --- End Switch STT Language Endpoint ---
 
+    # --- Endpoint to Switch TTS Speed ---
+    @app.post("/switch_tts_speed")
+    async def switch_tts_speed(request: Request):
+        global current_tts_speed  # Need global to modify module-level state
+        try:
+            data = await request.json()
+            new_speed = data.get("tts_speed") # Get value
+
+            if new_speed is None:
+                logger.warning("Missing 'tts_speed' in switch request.")
+                return JSONResponse(
+                    {"status": "error", "message": "Missing 'tts_speed' in request body."},
+                    status_code=400,
+                )
+
+            try:
+                new_speed_float = float(new_speed)
+                # Validate range
+                if not (0.1 <= new_speed_float <= 4.0):
+                    raise ValueError("TTS speed must be between 0.1 and 4.0")
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid TTS speed value received: {new_speed}")
+                return JSONResponse(
+                    {"status": "error", "message": "Invalid TTS speed value. Must be a number between 0.1 and 4.0."},
+                    status_code=400,
+                )
+
+            if new_speed_float != current_tts_speed:
+                current_tts_speed = new_speed_float
+                logger.info(
+                    f"Switched active TTS speed to: {current_tts_speed:.1f}"
+                )
+                return JSONResponse(
+                    {"status": "success", "tts_speed": current_tts_speed}
+                )
+            else:
+                logger.info(
+                    f"TTS speed already set to: {current_tts_speed:.1f}"
+                )
+                return JSONResponse(
+                    {"status": "success", "tts_speed": current_tts_speed}
+                ) # Still success
+
+        except json.JSONDecodeError:
+            logger.error("Failed to decode JSON body in /switch_tts_speed")
+            return JSONResponse(
+                {"status": "error", "message": "Invalid JSON format in request body"},
+                status_code=400,
+            )
+        except Exception as e:
+            logger.error(f"Error processing /switch_tts_speed request: {e}")
+            return JSONResponse(
+                {"status": "error", "message": f"Internal server error: {e}"},
+                status_code=500,
+            )
+    # --- End Switch TTS Speed Endpoint ---
 
     # --- Endpoint to Switch Model ---
     @app.post("/switch_model")
@@ -1282,7 +1339,7 @@ def main() -> int:
     global args, llm_api_base, stt_api_base, tts_base_url, use_llm_proxy
     global TTS_ACRONYM_PRESERVE_SET, SYSTEM_MESSAGE, APP_PORT, IS_OPENAI_TTS, IS_OPENAI_STT
     global AVAILABLE_MODELS, MODEL_COST_DATA, current_llm_model, AVAILABLE_VOICES_TTS
-    global selected_voice, current_stt_language, tts_client, stt_client
+    global selected_voice, current_stt_language, current_tts_speed, tts_client, stt_client
     global uvicorn_server, pywebview_window  # For server/window management
     global CHAT_LOG_DIR, STARTUP_TIMESTAMP_STR, TTS_AUDIO_DIR, TTS_BASE_DIR # For chat/TTS logging
 
@@ -1557,6 +1614,8 @@ def main() -> int:
         for word in args.tts_acronym_preserve_list.split(",")
         if word.strip()
     }
+    # Set initial TTS speed from args
+    current_tts_speed = args.tts_speed
 
     # --- Logging Configuration (Loguru) ---
     # Setup logger *after* parsing verbose flag
@@ -1728,7 +1787,7 @@ def main() -> int:
         logger.info(f"Using OpenAI TTS at: {tts_base_url}")
         logger.info(f"Using TTS model: {args.tts_model}")
         logger.info(f"Default TTS voice: {args.tts_voice}")
-        logger.info(f"Default TTS speed: {args.tts_speed}")
+        logger.info(f"Initial TTS speed: {current_tts_speed:.1f}") # Log initial speed
         logger.info("Using TTS API key provided (Required for OpenAI).")
         # Log OpenAI TTS pricing being used
         if args.tts_model in OPENAI_TTS_PRICING:
@@ -1743,7 +1802,7 @@ def main() -> int:
         logger.info(f"Using Custom TTS server at: {tts_base_url}")
         logger.info(f"Using TTS model: {args.tts_model}")
         logger.info(f"Default TTS voice: {args.tts_voice}")
-        logger.info(f"Default TTS speed: {args.tts_speed}")
+        logger.info(f"Initial TTS speed: {current_tts_speed:.1f}") # Log initial speed
         if args.tts_api_key:
             logger.info("Using TTS API key provided.")
         else:

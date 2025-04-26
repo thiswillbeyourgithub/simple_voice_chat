@@ -714,6 +714,7 @@ def register_endpoints(app: FastAPI, stream: Stream):
             "__SYSTEM_MESSAGE_JSON__", json.dumps(SYSTEM_MESSAGE)
         )
         # Inject the auto-start flag (from args)
+        html_content = html_content.replace(
             "__AUTO_START_FLAG__", json.dumps(args.auto_start)
         )
         # Inject the application version

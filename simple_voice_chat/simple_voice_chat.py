@@ -72,10 +72,7 @@ from .utils.llms import (
     calculate_llm_cost,
 )
 from .utils.misc import is_port_in_use
-from .utils.stt import (
-    transcribe_audio,
-    check_stt_confidence,
-)
+from .utils.stt import transcribe_audio, check_stt_confidence
 
 # --- Application Version ---
 APP_VERSION = "2.1.0"
@@ -115,7 +112,10 @@ OPENAI_TTS_VOICES = [
     "shimmer",
     "ash",
 ]
-selected_voice: Optional[str] = None # Set after parsing args and checking availability
+selected_voice: Optional[str] = None  # Set after parsing args and checking availability
+current_stt_language: Optional[
+    str
+] = None  # Set after parsing args, holds current STT lang
 
 # --- Clients (Initialized after parsing args) ---
 tts_client: Optional[OpenAI] = None
@@ -1549,10 +1549,13 @@ def main() -> int:
         else:
             logger.info("No STT API key provided (assumed optional for custom server).")
 
+    # Set global current_stt_language based on args
     if args.stt_language:
         logger.info(f"Using STT language: {args.stt_language}")
+        current_stt_language = args.stt_language # Set global from arg
     else:
-        logger.info("No STT language specified, Whisper will auto-detect.")
+        logger.info("No STT language specified (or empty), Whisper will auto-detect.")
+        current_stt_language = None # Set global to None
     logger.info(
         f"STT Confidence Thresholds: no_speech_prob > {args.stt_no_speech_prob_threshold}, avg_logprob < {args.stt_avg_logprob_threshold}, min_words < {args.stt_min_words_threshold}"
     )

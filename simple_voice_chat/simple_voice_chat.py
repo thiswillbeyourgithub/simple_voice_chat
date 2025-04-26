@@ -325,6 +325,7 @@ async def response(
     first_chunk_yielded = False # Track if we yielded the first chunk for UI
     response_completed_normally = False  # Track normal completion
     total_tts_chars = 0  # Initialize TTS character counter
+    tts_audio_file_paths: List[str] = [] # List to store paths of generated TTS audio files for this response
 
     try:
         # Signal waiting for LLM

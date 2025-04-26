@@ -709,6 +709,19 @@
         }
         /* End Replay Button Styles */
 
+        /* System Message Divider */
+        hr.system-divider {
+            border: none; /* Remove default border */
+            height: 1px; /* Set height */
+            background-color: #444; /* Color matching borders */
+            margin-top: 20px; /* Space above divider */
+            margin-bottom: 20px; /* Space below divider */
+            width: 90%; /* Make it slightly narrower than container */
+            margin-left: auto; /* Center it */
+            margin-right: auto;
+        }
+        /* End System Message Divider */
+
     </style>
 </head>
 
@@ -910,6 +923,12 @@
                 messageDiv.classList.add('message', 'system');
                 messageDiv.innerHTML = marked.parse(content);
                 chatMessages.appendChild(messageDiv);
+
+                // Add a horizontal divider after the system message
+                const divider = document.createElement('hr');
+                divider.classList.add('system-divider');
+                chatMessages.appendChild(divider);
+
                 // Don't scroll here, let the main flow handle it if needed
             }
         }

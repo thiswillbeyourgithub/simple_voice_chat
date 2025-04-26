@@ -37,24 +37,32 @@
             align-items: center; /* Center items horizontally */
             margin-bottom: 15px; /* Increased margin slightly */
             padding: 0 10px;
-            gap: 10px; /* Gap between title block and controls block */
+            gap: 10px; /* Gap between main row and options row */
             width: 100%; /* Ensure header takes full width */
             box-sizing: border-box; /* Include padding in width calculation */
-            /* Removed flex-wrap and justify-content */
         }
 
-        .header .title-container { /* New container for title and version */
+        .header-main-row { /* New: Wrapper for the top row items */
+            display: flex;
+            justify-content: space-between; /* Title left, controls+cost right */
+            align-items: center;
+            width: 100%;
+            gap: 15px; /* Gap between title and controls group */
+            flex-wrap: wrap; /* Allow wrapping if space is tight */
+            margin-bottom: 10px; /* Space below the main row */
+        }
+
+        .header .title-container {
             display: flex;
             align-items: baseline; /* Align baseline of title and version */
+            flex-shrink: 1; /* Allow title to shrink if needed */
+            min-width: 150px; /* Prevent title from becoming too small */
             justify-content: center; /* Center the content (h2 and span) */
             gap: 8px; /* Space between title and version */
-            /* Removed flex-grow, flex-shrink, min-width, margin-right */
-            text-align: center; /* Center the text within the container */
-            width: 100%; /* Allow title container to take full width */
-            margin-bottom: 5px; /* Add small space below title block */
+            /* Removed text-align, width, margin-bottom */
         }
 
-        .header h2 { /* Changed from h1 to h2 */
+        .header h2 {
             margin: 0;
             /* Removed flex-grow and margin-right from h2 */
         }
@@ -71,9 +79,19 @@
             align-items: center;
             gap: 10px; /* Adjusted gap */
             /* flex-shrink: 0; /* Removed: Allow controls container to shrink */
-            flex-wrap: wrap; /* Ensure controls themselves can wrap if needed */
-            justify-content: center; /* Center controls horizontally */
+            flex-wrap: wrap; /* Ensure controls wrap if needed */
+            /* Removed justify-content */
         }
+
+        .controls-and-cost-container { /* New: Wrapper for cost and controls */
+            display: flex;
+            align-items: center;
+            gap: 10px; /* Gap between cost display and controls */
+            flex-shrink: 0; /* Prevent this group from shrinking */
+            flex-wrap: wrap; /* Allow items inside to wrap */
+            justify-content: flex-end; /* Align items to the right */
+        }
+
 
         .header #start-button,
         .header #mute-button,
@@ -247,30 +265,28 @@
         .message blockquote { border-left: 3px solid #555; padding-left: 1em; margin-left: 0; color: #ccc; }
         .message h1, .message h2, .message h3, .message h4, .message h5, .message h6 { margin-top: 1em; margin-bottom: 0.5em; }
 
-        /* Cost Display Styles (Now in Header, Clickable) */
+        /* Cost Display Styles (Now part of header flow) */
         .cost-display {
             background-color: #1a1a1a;
             border: 1px solid #2a2a2a;
             border-radius: 6px;
-            padding: 8px 12px; /* Adjusted padding */
+            padding: 8px 12px;
             font-size: 13px;
             display: flex;
-            flex-direction: column; /* Stack total and details */
-            align-items: center; /* Center items horizontally */
-            justify-content: center; /* Center content vertically */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             box-sizing: border-box;
-            min-height: 46px; /* Minimum height to match buttons */
-            min-width: 120px; /* Slightly wider minimum width */
-            /* flex-shrink: 0; Removed as it's no longer in header flex */
-            cursor: pointer; /* Make it look clickable */
+            min-height: 46px; /* Match button height */
+            min-width: 120px; /* Keep minimum width */
+            flex-shrink: 0; /* Prevent cost display from shrinking */
+            cursor: pointer; /* Keep clickable for details */
             transition: background-color 0.2s;
-            position: fixed; /* Position relative to the viewport */
-            top: 10px; /* Align with close button */
-            right: 10px; /* Align with close button */
-            z-index: 1001; /* Ensure it's above most elements, below close button */
+            /* Removed position: fixed, top, right, z-index */
+            position: relative; /* Needed for absolute positioning of details? No, details are flex column */
         }
 
-        .cost-display:hover {
+         .cost-display:hover {
             background-color: #252525; /* Slight hover effect */
         }
 
@@ -585,31 +601,6 @@
 <body>
     <!-- Close Button -->
     <button id="close-window-button" class="close-button" title="Close Application">&times;</button>
-    <!-- Cost Display (Moved Here) -->
-    <div class="cost-display" id="cost-display" title="Click to toggle cost details">
-        <!-- Always Visible: Total Cost -->
-        <div class="cost-item" id="total-cost-item">
-            <!-- Removed "Total Cost:" label -->
-            <span class="cost-value" id="total-cost">$0.000000</span>
-        </div>
-        <!-- Hidden by default: Detailed Costs -->
-        <div id="cost-details">
-            <div class="cost-item">
-                <span class="cost-label">LLM Input:</span>
-                <span class="cost-value" id="input-cost">0.000000</span>
-            </div>
-            <!-- Removed Cached Cost as it's not used -->
-            <div class="cost-item">
-                <span class="cost-label">LLM Output:</span>
-                <span class="cost-value" id="output-cost">0.000000</span>
-            </div>
-            <div class="cost-item">
-                <span class="cost-label">TTS:</span>
-                <span class="cost-value" id="tts-cost">0.000000</span>
-            </div>
-        </div>
-    </div>
-    <!-- End Cost Display -->
     <!-- Add toast element after body opening tag -->
     <div id="toast-notification" class="toast"></div> <!-- Renamed ID for clarity -->
     <!-- Placeholder for system message from backend -->
@@ -618,25 +609,59 @@
     <script id="auto-start-data" type="application/json">__AUTO_START_FLAG__</script>
     <div class="container">
         <div class="header">
-            <div class="title-container"> <!-- Container for title and version -->
-                <h2>Simple Voice Chat</h2>
-                <span class="app-version">v__APP_VERSION__</span> <!-- Version placeholder -->
-            </div>
-            <div class="controls-container">
-                <!-- Options Button (Icon Only) -->
-                <button id="options-button" title="Show/Hide Options"></button> <!-- Icon set by JS -->
-                <!-- Clear Chat Button (Icon Only) -->
-                <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Icon set by JS -->
-                <!-- Mute Area now also contains the start button -->
-                <div id="mute-area"> <!-- Removed initial display: none; JS will handle visibility -->
-                    <!-- Start button added back here -->
-                    <button id="start-button">Start</button>
-                    <!-- Mute controls (initially hidden by JS) -->
-                    <div class="pulse-circle" style="display: none;"></div>
-                    <button id="mute-button" title="Toggle Mute (M)" style="display: none;"></button> <!-- Icon set by JS, kept title -->
+            <!-- New Main Row for Title, Cost, Controls -->
+            <div class="header-main-row">
+                <div class="title-container"> <!-- Container for title and version -->
+                    <h2>Simple Voice Chat</h2>
+                    <span class="app-version">v__APP_VERSION__</span> <!-- Version placeholder -->
                 </div>
+                <!-- New Wrapper for Cost Display and Controls -->
+                <div class="controls-and-cost-container">
+                    <!-- Cost Display (Moved Here) -->
+                    <div class="cost-display" id="cost-display" title="Click to toggle cost details">
+                        <!-- Always Visible: Total Cost -->
+                        <div class="cost-item" id="total-cost-item">
+                            <span class="cost-value" id="total-cost">$0.000000</span>
+                        </div>
+                        <!-- Hidden by default: Detailed Costs -->
+                        <div id="cost-details">
+                            <div class="cost-item">
+                                <span class="cost-label">LLM Input:</span>
+                                <span class="cost-value" id="input-cost">0.000000</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="cost-label">LLM Output:</span>
+                                <span class="cost-value" id="output-cost">0.000000</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="cost-label">TTS:</span>
+                                <span class="cost-value" id="tts-cost">0.000000</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- End Cost Display -->
+                    <!-- Original Controls Container -->
+                    <div class="controls-container">
+                        <!-- Options Button (Icon Only) -->
+                        <button id="options-button" title="Show/Hide Options"></button> <!-- Icon set by JS -->
+                        <!-- Clear Chat Button (Icon Only) -->
+                        <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Icon set by JS -->
+                        <!-- Mute Area now also contains the start button -->
+                        <div id="mute-area"> <!-- Removed initial display: none; JS will handle visibility -->
+                            <!-- Start button added back here -->
+                            <button id="start-button">Start</button>
+                            <!-- Mute controls (initially hidden by JS) -->
+                            <div class="pulse-circle" style="display: none;"></div>
+                            <button id="mute-button" title="Toggle Mute (M)" style="display: none;"></button> <!-- Icon set by JS, kept title -->
+                        </div>
+                    </div>
+                    <!-- End Original Controls Container -->
+                </div>
+                <!-- End Controls and Cost Container -->
             </div>
-            <!-- New Options Row (Initially Hidden) -->
+            <!-- End Header Main Row -->
+
+            <!-- Options Row (Remains separate, below the main row) -->
             <div id="options-row">
                  <!-- Model Selection Dropdown -->
                  <div class="select-container">

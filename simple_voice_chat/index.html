@@ -1759,37 +1759,7 @@
             console.log('Stop function finished.');
         }
 
-        startButton.addEventListener('click', () => {
-            console.log('Start button clicked');
-            updateStatusIndicator('idle'); // Clear status before starting
-            // Only start if not already connected or connecting
-            if (!peerConnection || !['connected', 'connecting', 'new'].includes(peerConnection.connectionState)) {
-                // Store system message if it exists as the first message
-                let initialSystemMessage = null;
-                if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
-                    initialSystemMessage = chatbotHistory[0];
-                    console.log("Preserving initial system message content:", initialSystemMessage.content);
-                }
-
-                // Clear chat UI and reset costs before starting a new session
-                chatMessages.innerHTML = ''; // Clear UI first
-                chatbotHistory = []; // Clear internal history
-
-                // Re-add system message to history and UI if it was preserved
-                if (initialSystemMessage) {
-                    chatbotHistory.push(initialSystemMessage); // Add back to history
-                    renderSystemMessageUI(initialSystemMessage.content); // Add back to UI
-                    console.log("Restored system message to history and UI.");
-                }
-
-                // Reset cumulative costs at the start of a new session
-                resetCumulativeCosts();
-                console.log("Chat UI cleared (system message restored), starting WebRTC setup...");
-                setupWebRTC(); // This will trigger sendInputHook which now includes the system message
-            } else {
-                console.log('Connection already active or starting.');
-            }
-        });
+        // Removed startButton event listener
 
         // --- Clear Chat Button Logic ---
         clearChatButton.addEventListener('click', async () => { // Make listener async

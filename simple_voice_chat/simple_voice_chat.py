@@ -1,6 +1,7 @@
 import argparse
 import json
 import random
+import os # Added for environment variable access if needed, though settings used directly
 import sys
 import threading
 import time
@@ -1907,6 +1908,14 @@ def main() -> int:
         else:  # This else belongs to the if args.browser block
             logger.info(f"Creating pywebview window for URL: {url}")
             api = Api(None)  # pywebview API instance
+
+            # --- Pywebview Settings ---
+            # Disable automatic opening of DevTools when debug=True
+            # This allows enabling debug mode always, but requires manual opening (e.g., right-click)
+            webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
+            logger.info(f"pywebview setting OPEN_DEVTOOLS_IN_DEBUG set to False.")
+            # --- End Pywebview Settings ---
+
             # Store window object globally for monitor thread access
             pywebview_window = webview.create_window(
                 f"Simple Voice Chat v{APP_VERSION}",
@@ -1920,7 +1929,8 @@ def main() -> int:
             logger.info("Starting pywebview...")
             try:
                 # This blocks until the window is closed
-                webview.start(debug=args.verbose)
+                # Always enable debug mode internally, but disable auto-open via settings above.
+                webview.start(debug=True)
             except Exception as e:
                 logger.critical(f"Pywebview encountered an error: {e}")
                 exit_code = 1  # Set error code

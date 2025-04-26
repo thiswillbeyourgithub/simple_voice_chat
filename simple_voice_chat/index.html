@@ -1760,6 +1760,14 @@
         clearChatButton.addEventListener('click', async () => { // Make listener async
             console.log("Clear Chat button clicked.");
 
+            // Show confirmation dialog
+            if (!confirm("Are you sure you want to clear the chat history and reset costs? This will start a new log file.")) {
+                console.log("Clear chat cancelled by user.");
+                return; // Stop if user cancels
+            }
+
+            console.log("User confirmed clear chat.");
+
             // 1. Clear Chat UI
             chatMessages.innerHTML = '';
 

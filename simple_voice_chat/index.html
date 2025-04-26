@@ -569,19 +569,19 @@
             justify-content: center; /* Horizontally center items */
             gap: 8px; /* Space between spinner and text */
             padding: 8px 15px; /* Padding */
-            /* margin-top: 10px; Removed margin-top */
-            margin-bottom: 15px; /* Add space below indicator */
+            /* Removed margin-bottom */
             font-size: 14px; /* Font size */
             color: #aaa; /* Text color */
             background-color: #1a1a1a; /* Background similar to cost display */
             border: 1px solid #2a2a2a; /* Border similar to cost display */
             border-radius: 6px; /* Rounded corners */
-            width: 100%; /* Full width */
+            /* Removed width: 100% */
             box-sizing: border-box; /* Include padding in width */
-            min-height: 38px; /* Minimum height to prevent layout shifts */
+            height: 46px; /* Match button/cost display height */
             opacity: 0; /* Hidden by default */
             transition: opacity 0.3s ease-in-out; /* Smooth fade */
             visibility: hidden; /* Ensure it doesn't take space when hidden */
+            flex-shrink: 0; /* Prevent shrinking */
         }
 
         .status-indicator.visible {
@@ -641,6 +641,12 @@
                         </div>
                     </div>
                     <!-- End Cost Display -->
+                    <!-- Status Indicator Moved Here -->
+                    <div class="status-indicator" id="status-indicator">
+                        <div class="spinner" id="status-spinner" style="display: none;"></div>
+                        <span id="status-text"></span>
+                    </div>
+                    <!-- End Status Indicator -->
                     <!-- Original Controls Container -->
                     <div class="controls-container">
                         <!-- Options Button (Icon Only) -->
@@ -688,14 +694,8 @@
 
         <div class="chat-container">
             <div class="chat-messages" id="chat-messages"></div>
-            <!-- Status Indicator Moved Below -->
+            <!-- Status Indicator is now in the header -->
         </div>
-        <!-- Status Indicator Moved Here (Between Header and Chat Container) -->
-        <div class="status-indicator" id="status-indicator">
-            <div class="spinner" id="status-spinner" style="display: none;"></div>
-            <span id="status-text"></span>
-        </div>
-        <!-- End Status Indicator -->
         <!-- Removed empty controls div -->
     </div>
     <audio id="audio-output"></audio>

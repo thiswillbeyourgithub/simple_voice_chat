@@ -625,11 +625,13 @@
                 <!-- Clear Chat Button (Icon Only) -->
                 <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Removed text, added title -->
                 <!-- End Clear Chat Button -->
-                <!-- Mute Area containing the pulse circle and mute button -->
-                <div id="mute-area" style="display: none;"> <!-- Initially hidden -->
-                    <!-- Removed wrapper div -->
-                    <div class="pulse-circle"></div>
-                    <button id="mute-button" title="Toggle Mute (M)"></button> <!-- Icon set by JS, kept title -->
+                <!-- Mute Area now also contains the start button -->
+                <div id="mute-area"> <!-- Removed initial display: none; JS will handle visibility -->
+                    <!-- Start button added back here -->
+                    <button id="start-button">Start</button>
+                    <!-- Mute controls (initially hidden by JS) -->
+                    <div class="pulse-circle" style="display: none;"></div>
+                    <button id="mute-button" title="Toggle Mute (M)" style="display: none;"></button> <!-- Icon set by JS, kept title -->
                 </div>
             </div>
         </div>

@@ -569,7 +569,8 @@
             justify-content: center; /* Horizontally center items */
             gap: 8px; /* Space between spinner and text */
             padding: 8px 15px; /* Padding */
-            margin-top: 10px; /* Add space above indicator, removed margin-bottom */
+            /* margin-top: 10px; Removed margin-top */
+            margin-bottom: 15px; /* Add space below indicator */
             font-size: 14px; /* Font size */
             color: #aaa; /* Text color */
             background-color: #1a1a1a; /* Background similar to cost display */
@@ -687,13 +688,14 @@
 
         <div class="chat-container">
             <div class="chat-messages" id="chat-messages"></div>
-            <!-- Status Indicator Moved Here -->
-            <div class="status-indicator" id="status-indicator">
-                <div class="spinner" id="status-spinner" style="display: none;"></div>
-                <span id="status-text"></span>
-            </div>
-            <!-- End Status Indicator -->
+            <!-- Status Indicator Moved Below -->
         </div>
+        <!-- Status Indicator Moved Here (Between Header and Chat Container) -->
+        <div class="status-indicator" id="status-indicator">
+            <div class="spinner" id="status-spinner" style="display: none;"></div>
+            <span id="status-text"></span>
+        </div>
+        <!-- End Status Indicator -->
         <!-- Removed empty controls div -->
     </div>
     <audio id="audio-output"></audio>

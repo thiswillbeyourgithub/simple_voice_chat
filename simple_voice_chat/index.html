@@ -33,14 +33,14 @@
 
         .header {
             display: flex;
-            justify-content: space-between;
-            align-items: center; /* Align items vertically */
-            margin-bottom: 10px; /* Further reduced margin */
+            flex-direction: column; /* Stack title and controls vertically */
+            align-items: center; /* Center items horizontally */
+            margin-bottom: 15px; /* Increased margin slightly */
             padding: 0 10px;
-            gap: 15px; /* Adjusted gap */
+            gap: 10px; /* Gap between title block and controls block */
             width: 100%; /* Ensure header takes full width */
             box-sizing: border-box; /* Include padding in width calculation */
-            flex-wrap: wrap; /* Allow controls to wrap on smaller screens */
+            /* Removed flex-wrap and justify-content */
         }
 
         .header .title-container { /* New container for title and version */
@@ -48,12 +48,10 @@
             align-items: baseline; /* Align baseline of title and version */
             justify-content: center; /* Center the content (h2 and span) */
             gap: 8px; /* Space between title and version */
-            flex-grow: 1; /* Allow title container to take available space */
-            flex-shrink: 1; /* Allow title container to shrink if needed */
-            min-width: 150px; /* Prevent title from becoming too small */
-            margin-right: 10px; /* Add some space before controls */
-            /* white-space: nowrap; /* Allow wrapping if necessary */
+            /* Removed flex-grow, flex-shrink, min-width, margin-right */
             text-align: center; /* Center the text within the container */
+            width: 100%; /* Allow title container to take full width */
+            margin-bottom: 5px; /* Add small space below title block */
         }
 
         .header h2 { /* Changed from h1 to h2 */

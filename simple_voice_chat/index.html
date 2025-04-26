@@ -967,9 +967,9 @@
             }
 
             // Disable options row elements based on state as well
-            // Model select is disabled if connecting OR connected
+            // Model select is disabled only if connecting (like voice select)
             // Voice select is disabled only if connecting
-            modelSelect.disabled = isConnecting || isConnected;
+            modelSelect.disabled = isConnecting; // Allow changing model while connected
             voiceSelect.disabled = isConnecting;
         }
 

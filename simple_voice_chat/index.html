@@ -629,8 +629,6 @@
     <div id="toast-notification" class="toast"></div> <!-- Renamed ID for clarity -->
     <!-- Placeholder for system message from backend -->
     <script id="system-message-data" type="application/json">__SYSTEM_MESSAGE_JSON__</script>
-    <!-- Placeholder for auto-start flag from backend -->
-    <script id="auto-start-data" type="application/json">__AUTO_START_FLAG__</script>
     <!-- Placeholder for initial STT language from backend -->
     <script id="stt-language-data" type="application/json">__STT_LANGUAGE_JSON__</script>
     <div class="container">
@@ -680,8 +678,6 @@
                         <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Icon set by JS -->
                         <!-- Mute Area now also contains the start button -->
                         <div id="mute-area"> <!-- Removed initial display: none; JS will handle visibility -->
-                            <!-- Start button added back here -->
-                            <button id="start-button">Start</button>
                             <!-- Mute controls (initially hidden by JS) -->
                             <!-- Removed pulse-circle div -->
                             <button id="mute-button" title="Toggle Mute (M)" style="display: none;">
@@ -766,7 +762,6 @@
         // --- End Voice Fuzzy Search State ---
 
         const audioOutput = document.getElementById('audio-output');
-        // const startButton = document.getElementById('start-button'); // Removed
         const muteArea = document.getElementById('mute-area');
         const muteButton = document.getElementById('mute-button');
         const chatMessages = document.getElementById('chat-messages');
@@ -2042,25 +2037,20 @@
         });
         // --- End Cost Details Toggle ---
 
-        // --- Auto Start Logic ---
-        function tryAutoStart() {
-            const autoStartDataElement = document.getElementById('auto-start-data');
-            let autoStart = false; // Default to false if flag is missing or invalid
-            if (autoStartDataElement) {
-                try {
-                    autoStart = JSON.parse(autoStartDataElement.textContent || 'false');
-                } catch (error) {
-                    console.error("Error parsing auto-start flag:", error);
-                }
-            } else {
-                console.warn("Auto-start data element not found.");
-            }
-
-            if (autoStart) {
-                console.log("Auto-start enabled. Initiating WebRTC setup...");
-                // Directly call setupWebRTC if not already connecting/connected
-                if (!peerConnection || !['connected', 'connecting', 'new'].includes(peerConnection.connectionState)) {
-                    // Perform the same pre-connection cleanup as the original start button click
+        // --- Initial Connection Setup ---
+        // Use Promise.allSettled to wait for fetches, then initiate connection
+        Promise.allSettled([
+            fetchAndPopulateModels(), // These return promises implicitly
+            fetchAndPopulateVoices()
+        ]).then((results) => {
+            console.log("Model and voice fetching settled:", results);
+            // Check if fetches were successful before attempting connection
+            const fetchesOk = results.every(result => result.status === 'fulfilled');
+            if (fetchesOk) {
+                console.log("Initial data loaded successfully. Initiating WebRTC setup...");
+                // Small delay to allow UI updates from fetches to potentially complete
+                setTimeout(() => {
+                    // Perform pre-connection cleanup (similar to old start button logic)
                     let initialSystemMessage = null;
                     if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
                         initialSystemMessage = chatbotHistory[0];
@@ -2072,34 +2062,11 @@
                         renderSystemMessageUI(initialSystemMessage.content);
                     }
                     resetCumulativeCosts(); // Reset costs
-                    console.log("Auto-start: Chat cleared, costs reset, initiating WebRTC setup...");
+                    console.log("Pre-connection state cleared, initiating WebRTC setup...");
                     setupWebRTC(); // Start the connection
-                } else {
-                     console.log("Auto-start: Connection already active or starting.");
-                }
+                }, 100);
             } else {
-                console.log("Auto-start disabled. Manual connection required (if applicable - now automatic).");
-                // Since start button is removed, we should probably always try to connect?
-                // Let's modify this to always attempt connection unless explicitly disabled via flag.
-                // For now, respecting the flag. If flag is false, nothing happens automatically.
-            }
-        }
-
-        // Call tryAutoStart after initial setup functions are called
-        // Use Promise.allSettled to wait for fetches, then try auto-start
-        Promise.allSettled([
-            fetchAndPopulateModels(), // These return promises implicitly
-            fetchAndPopulateVoices()
-        ]).then((results) => {
-            console.log("Model and voice fetching settled:", results);
-            // Check if fetches were successful before attempting connection
-            const fetchesOk = results.every(result => result.status === 'fulfilled');
-            if (fetchesOk) {
-                console.log("Initial data loaded successfully. Proceeding with auto-start.");
-                // Small delay to allow UI updates from fetches to potentially complete
-                setTimeout(tryAutoStart, 100);
-            } else {
-                console.error("Failed to load initial model/voice data. Auto-start aborted.");
+                console.error("Failed to load initial model/voice data. Cannot connect.");
                 showToast("Failed to load initial data. Cannot connect.", "error");
                 updateStatusIndicator('error', 'Initialization failed');
             }
@@ -2109,7 +2076,7 @@
              showToast("Critical error during initialization.", "error");
              updateStatusIndicator('error', 'Initialization error');
         });
-        // --- End Auto Start Logic ---
+        // --- End Initial Connection Setup ---
 
 
         // Voice input change handler (triggered on blur or selecting from datalist)
@@ -2442,6 +2409,7 @@
                     optionsButton.click();
                 }
             }
+            // Removed Space bar shortcut for Start button
         });
 
         // --- Removed Custom Context Menu Logic ---

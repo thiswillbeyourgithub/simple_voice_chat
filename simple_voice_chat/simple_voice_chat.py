@@ -713,10 +713,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
         html_content = html_content.replace(
             "__SYSTEM_MESSAGE_JSON__", json.dumps(SYSTEM_MESSAGE)
         )
-        # Inject the auto-start flag (from args)
-        html_content = html_content.replace(
-            "__AUTO_START_FLAG__", json.dumps(args.auto_start)
-        )
         # Inject the application version
         html_content = html_content.replace("__APP_VERSION__", APP_VERSION)
         # Inject the initial STT language (using the final current_stt_language string)
@@ -1179,12 +1175,6 @@ def main() -> int:
         "--verbose",
         action="store_true",
         help="Enable verbose logging (DEBUG level)",
-    )
-    parser.add_argument(
-        "--auto-start",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Automatically start the connection when the application loads. Default: True",
     )
     parser.add_argument(
         "--browser",

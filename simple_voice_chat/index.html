@@ -1933,8 +1933,8 @@
                 data.available.forEach(voiceId => {
                     const option = document.createElement('option');
                     option.value = voiceId;
-                    // Capitalize first letter for display
-                    option.textContent = voiceId.charAt(0).toUpperCase() + voiceId.slice(1);
+                    // Use the voice ID directly without changing case
+                    option.textContent = voiceId;
                     voiceSelect.appendChild(option);
                 });
 

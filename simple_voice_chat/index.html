@@ -1395,6 +1395,28 @@
 
         let eventSource = null; // Keep track of the EventSource instance
 
+        // Helper function to format cost display
+        function formatCostDisplay(costValue) {
+            if (typeof costValue !== 'number' || isNaN(costValue)) {
+                return 'N/A'; // Or 'Err'
+            }
+
+            // Use toFixed(6) as the base, matching current precision level
+            let costString = costValue.toFixed(6);
+
+            // If the number is effectively zero (within floating point tolerance), display '0.0'
+            if (Math.abs(costValue) < 1e-9) {
+                return '0.0';
+            }
+
+            // Remove trailing zeros, but keep at least one decimal place
+            costString = costString.replace(/(\.[0-9]*[1-9])0+$/, '$1'); // Remove trailing zeros after the last non-zero digit
+            costString = costString.replace(/\.0+$/, '.0'); // Ensure .0 remains if it was X.000000
+
+            return costString;
+        }
+
+
         function setupEventSource() {
             if (eventSource) {
                 eventSource.close(); // Close existing connection if any
@@ -1565,10 +1587,10 @@
                     cumulativeInputCost += currentInputCost;
                     cumulativeOutputCost += currentOutputCost;
 
-                    // Update LLM cost spans within the (potentially hidden) details section
-                    document.getElementById('input-cost').textContent = cumulativeInputCost.toFixed(6);
-                    // document.getElementById('cached-cost').textContent = '0.000000'; // Removed cached cost element
-                    document.getElementById('output-cost').textContent = cumulativeOutputCost.toFixed(6);
+                    // Update LLM cost spans within the (potentially hidden) details section using the formatter
+                    document.getElementById('input-cost').textContent = formatCostDisplay(cumulativeInputCost);
+                    // document.getElementById('cached-cost').textContent = '0.0'; // Removed cached cost element
+                    document.getElementById('output-cost').textContent = formatCostDisplay(cumulativeOutputCost);
                 }
 
                 // --- TTS Cost Handling ---
@@ -1578,8 +1600,8 @@
                 // Add current TTS cost to cumulative total
                 cumulativeTtsCost += currentTtsCost;
 
-                // Update TTS cost span within the (potentially hidden) details section
-                document.getElementById('tts-cost').textContent = cumulativeTtsCost.toFixed(6);
+                // Update TTS cost span within the (potentially hidden) details section using the formatter
+                document.getElementById('tts-cost').textContent = formatCostDisplay(cumulativeTtsCost);
                 // --- End TTS Cost Handling ---
 
 
@@ -1591,10 +1613,12 @@
                 } else {
                     // Recalculate total based on all cumulative values
                     cumulativeTotalCost = cumulativeInputCost + cumulativeOutputCost + cumulativeTtsCost;
-                    document.getElementById('total-cost').textContent = '$' + cumulativeTotalCost.toFixed(6);
+                    // Format total cost display, keeping the '$' prefix
+                    document.getElementById('total-cost').textContent = '$' + formatCostDisplay(cumulativeTotalCost);
                 }
 
-                console.log(`Updated cumulative costs - Added LLM Input: $${currentInputCost.toFixed(6)}, LLM Output: $${currentOutputCost.toFixed(6)}, TTS: $${currentTtsCost.toFixed(6)} | New Total: $${cumulativeTotalCost.toFixed(6)}`);
+                // Log with full precision for debugging, display uses formatter
+                console.log(`Updated cumulative costs - Added LLM Input: $${currentInputCost.toFixed(6)}, LLM Output: $${currentOutputCost.toFixed(6)}, TTS: $${currentTtsCost.toFixed(6)} | New Total: $${cumulativeTotalCost.toFixed(6)} (Display: ${formatCostDisplay(cumulativeTotalCost)})`);
 
             } catch (error) {
                 // This catch block handles unexpected errors during the try block execution
@@ -1676,13 +1700,13 @@
             cumulativeOutputCost = 0.0;
             cumulativeTtsCost = 0.0; // Reset TTS cost
             cumulativeTotalCost = 0.0;
-            // Update detail cost spans
-            document.getElementById('input-cost').textContent = '0.000000';
-            // document.getElementById('cached-cost').textContent = '0.000000'; // Removed
-            document.getElementById('output-cost').textContent = '0.000000';
-            document.getElementById('tts-cost').textContent = '0.000000';
-            // Update visible total cost display
-            document.getElementById('total-cost').textContent = '$0.000000';
+            // Update detail cost spans using the formatter for '0.0'
+            document.getElementById('input-cost').textContent = formatCostDisplay(0.0);
+            // document.getElementById('cached-cost').textContent = formatCostDisplay(0.0); // Removed
+            document.getElementById('output-cost').textContent = formatCostDisplay(0.0);
+            document.getElementById('tts-cost').textContent = formatCostDisplay(0.0);
+            // Update visible total cost display using the formatter for '$0.0'
+            document.getElementById('total-cost').textContent = '$' + formatCostDisplay(0.0);
             // Ensure details are hidden on reset
             costDetails.style.display = 'none';
             console.log("Cumulative costs reset.");

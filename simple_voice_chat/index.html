@@ -2228,6 +2228,11 @@
         });
         // --- End Model Input Fuzzy Search ---
 
+        // --- Select text on model input focus ---
+        modelInput.addEventListener('focus', () => {
+            modelInput.select(); // Select all text in the input field on focus
+        });
+        // --- End Select text on model input focus ---
 
         // Add keyboard shortcuts
         document.addEventListener('keydown', (event) => {

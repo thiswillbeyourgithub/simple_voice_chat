@@ -421,7 +421,8 @@
 
         .pulse-circle.muted { /* Style for muted state */
             background-color: #666; /* Grey color when muted */
-            /* Keep transform for consistency, but color changes */
+            /* Hide the indicator when muted */
+            display: none;
         }
 
         /* Animation for message appearance */
@@ -473,7 +474,30 @@
             height: 100%;
         }
 
-        /* Button styling now in header section */
+        /* New styles for the indicator inside the mute button */
+        #mute-button .audio-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 80%; /* Adjust size relative to button */
+            height: 80%; /* Adjust size relative to button */
+            border-radius: 50%;
+            background-color: red;
+            opacity: var(--audio-level-opacity, 0); /* Controlled by JS */
+            transform: translate(-50%, -50%); /* Center it */
+            transition: opacity 0.1s ease;
+            z-index: 0; /* Behind the icon */
+        }
+
+        #mute-button.muted .audio-indicator {
+            opacity: 0 !important; /* Force hide when muted */
+        }
+
+        #mute-button .mute-toggle {
+            position: relative; /* Ensure icon is above indicator */
+            z-index: 1;
+        }
+        /* End new indicator styles */
 
         /* Add styles for toast notifications */
         .toast {
@@ -660,8 +684,12 @@
                             <!-- Start button added back here -->
                             <button id="start-button">Start</button>
                             <!-- Mute controls (initially hidden by JS) -->
-                            <div class="pulse-circle" style="display: none;"></div>
-                            <button id="mute-button" title="Toggle Mute (M)" style="display: none;"></button> <!-- Icon set by JS, kept title -->
+                            <!-- Removed pulse-circle div -->
+                            <button id="mute-button" title="Toggle Mute (M)" style="display: none;">
+                                <!-- Indicator span added inside the button -->
+                                <span class="audio-indicator"></span>
+                                <!-- Icon will be added here by JS -->
+                            </button>
                         </div>
                     </div>
                     <!-- End Original Controls Container -->
@@ -907,7 +935,7 @@
 
         function updateButtonState() {
             // References are now global
-            const pulseCircle = muteArea.querySelector('.pulse-circle'); // Get pulse circle reference
+            // const pulseCircle = muteArea.querySelector('.pulse-circle'); // Removed reference
 
             // Clear start button content
             startButton.innerHTML = '';
@@ -925,7 +953,7 @@
             if (isConnecting) {
                 // Show Start Button (Connecting State), Hide Mute Controls
                 startButton.style.display = 'inline-flex';
-                if (pulseCircle) pulseCircle.style.display = 'none';
+                // if (pulseCircle) pulseCircle.style.display = 'none'; // Removed pulse circle logic
                 muteButton.style.display = 'none';
 
                 const spinner = document.createElement('div');
@@ -949,7 +977,7 @@
                 startButton.style.display = 'none';
                 startButton.classList.remove('icon-with-spinner'); // Remove class
                 startButton.disabled = true; // Keep disabled (though hidden)
-                if (pulseCircle) pulseCircle.style.display = 'block'; // Show pulse circle
+                // if (pulseCircle) pulseCircle.style.display = 'block'; // Removed pulse circle logic
                 muteButton.style.display = 'inline-flex'; // Show mute button
 
                 modelInput.disabled = false; // Allow changing model while connected
@@ -967,19 +995,27 @@
                 const micIcon = document.createElement('div');
                 micIcon.className = 'mute-toggle';
                 micIcon.innerHTML = isMuted ? micMutedIconSVG : micIconSVG;
-                muteButton.appendChild(micIcon);
-                // Ensure pulse circle muted state is correct
-                if (pulseCircle) {
-                    if (isMuted) pulseCircle.classList.add('muted');
-                    else pulseCircle.classList.remove('muted');
+                // Ensure the indicator span exists before appending the icon
+                const indicatorSpan = muteButton.querySelector('.audio-indicator');
+                if (indicatorSpan) {
+                    muteButton.insertBefore(micIcon, indicatorSpan.nextSibling); // Insert icon after indicator
+                } else {
+                    muteButton.appendChild(micIcon); // Fallback if indicator not found
+                }
+                // Add/remove 'muted' class to the button itself for CSS styling of indicator
+                if (isMuted) {
+                    muteButton.classList.add('muted');
+                } else {
+                    muteButton.classList.remove('muted');
                 }
 
 
             } else { // Initial state or disconnected/failed
                 // Show Start Button (Initial State), Hide Mute Controls
                 startButton.style.display = 'inline-flex';
-                if (pulseCircle) pulseCircle.style.display = 'none';
+                // if (pulseCircle) pulseCircle.style.display = 'none'; // Removed pulse circle logic
                 muteButton.style.display = 'none';
+                muteButton.classList.remove('muted'); // Ensure muted class is removed
 
                 startButton.classList.remove('icon-with-spinner');
                 startButton.disabled = false;
@@ -1044,16 +1080,13 @@
                 }
             });
 
-            // Add/remove muted class to the pulse circle
-            const pulseCircle = muteArea.querySelector('.pulse-circle');
-            if (pulseCircle) {
-                if (isMuted) {
-                    pulseCircle.classList.add('muted');
-                } else {
-                    pulseCircle.classList.remove('muted');
-                }
+            // Add/remove muted class to the mute button itself
+            if (isMuted) {
+                muteButton.classList.add('muted');
+            } else {
+                muteButton.classList.remove('muted');
             }
-
+            // The updateButtonState function will handle setting the icon correctly
             updateButtonState();
 
             // Notification sound removed from here
@@ -1076,16 +1109,19 @@
                     analyser.getByteFrequencyData(dataArray);
                     const average = Array.from(dataArray).reduce((a, b) => a + b, 0) / dataArray.length;
                     // Scale audio level more aggressively for better visual feedback
-                    audioLevel = Math.min(1, (average / 255) * 2); // Multiply by 2, cap at 1
+                    // Scale audio level more aggressively for better visual feedback, map to 0-1 range for opacity
+                    // Lower values are less sensitive, higher values more sensitive
+                    const sensitivityFactor = 2.5;
+                    audioLevel = Math.min(1, (average / 255) * sensitivityFactor);
 
-                    // Update CSS variable for the pulse circle in the mute area
-                    const pulseCircle = muteArea.querySelector('.pulse-circle');
-                    if (pulseCircle) {
-                        // Scale from 0.8 (no sound) to 1.5 (max sound)
-                        const scale = 0.8 + audioLevel * 0.7;
-                        pulseCircle.style.setProperty('--audio-level', scale);
-                        // Color is now handled by the .muted class added/removed in toggleMute
-                        // No need to set color or opacity here.
+                    // Update CSS variable for the indicator's opacity inside the mute button
+                    const indicatorSpan = muteButton.querySelector('.audio-indicator');
+                    if (indicatorSpan) {
+                        // Set opacity directly based on audioLevel (0 to 1)
+                        // Add a minimum opacity floor so it's slightly visible even with low noise
+                        const minOpacity = 0.05;
+                        const opacity = isMuted ? 0 : minOpacity + audioLevel * (1 - minOpacity);
+                        indicatorSpan.style.setProperty('--audio-level-opacity', opacity);
                     }
 
                     animationFrame = requestAnimationFrame(updateAudioLevel);
@@ -1731,12 +1767,12 @@
             muteButton.removeEventListener('click', toggleMute);
             updateButtonState(); // Reset button to initial state
             audioLevel = 0;
-            // Reset pulse circle scale and opacity
-            const pulseCircle = muteArea.querySelector('.pulse-circle');
-            if (pulseCircle) {
-                pulseCircle.style.setProperty('--audio-level', 0.8); // Reset scale to base (silent) size
-                pulseCircle.classList.remove('muted'); // Ensure muted class is removed on stop
+            // Reset indicator opacity
+            const indicatorSpan = muteButton.querySelector('.audio-indicator');
+            if (indicatorSpan) {
+                indicatorSpan.style.setProperty('--audio-level-opacity', 0);
             }
+            muteButton.classList.remove('muted'); // Ensure muted class is removed
             updateStatusIndicator('idle'); // Ensure status is idle when stopped
             console.log('Stop function finished.');
         }

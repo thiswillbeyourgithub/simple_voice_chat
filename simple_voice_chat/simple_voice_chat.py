@@ -25,12 +25,14 @@ import numpy as np
 import webview
 import platformdirs
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import (
     HTMLResponse,
     StreamingResponse,
     JSONResponse,
+    FileResponse,
 )
+# from fastapi.staticfiles import StaticFiles # Removed StaticFiles import, using FileResponse instead
 from fastrtc import (
     AdditionalOutputs,
     ReplyOnPause,
@@ -104,7 +106,8 @@ IS_OPENAI_TTS: bool = False  # Flag to indicate if using OpenAI TTS
 IS_OPENAI_STT: bool = False  # Flag to indicate if using OpenAI STT
 CHAT_LOG_DIR: Optional[Path] = None  # Directory for chat logs
 STARTUP_TIMESTAMP_STR: Optional[str] = None  # Timestamp string for log filename
-TTS_AUDIO_DIR: Optional[Path] = None # Directory for temporary TTS audio files
+TTS_AUDIO_DIR: Optional[Path] = None # Directory for this run's temporary TTS audio files
+TTS_BASE_DIR: Optional[Path] = None # Base directory containing all run-specific TTS dirs
 
 # --- State Variables (Managed during runtime) ---
 AVAILABLE_MODELS: List[str] = []

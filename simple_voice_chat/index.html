@@ -647,6 +647,17 @@
              border-width: 2px; /* Match size */
         }
         /* End Status Indicator Styles */
+
+        /* Word Reveal Styles */
+        .reveal-word {
+            opacity: 0;
+            transition: opacity 0.15s ease-in-out; /* Smooth fade-in */
+            display: inline; /* Keep words inline */
+        }
+        .reveal-word.visible {
+            opacity: 1;
+        }
+        /* End Word Reveal Styles */
     </style>
 </head>
 
@@ -1637,10 +1648,22 @@
         function addMessage(role, content, isComplete = true) {
             // Add to UI - Parse content as Markdown
             const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message', role, 'message-appear'); // Add animation class
+            messageDiv.classList.add('message', role); // Remove 'message-appear' for now, reveal handles visual entry
             // Use marked.parse() and set innerHTML
             messageDiv.innerHTML = marked.parse(content);
             chatMessages.appendChild(messageDiv);
+
+            // --- Word Reveal ---
+            // Cancel any previous animation on this div (shouldn't happen for addMessage, but good practice)
+            const existingTimeoutIds = JSON.parse(messageDiv.dataset.revealTimeouts || '[]');
+            existingTimeoutIds.forEach(clearTimeout);
+
+            // Wrap words and start animation
+            const wordSpans = wrapWordsInSpans(messageDiv);
+            const timeoutIds = animateWords(wordSpans);
+            messageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store timeout IDs
+            // --- End Word Reveal ---
+
             scrollToBottom(); // Scroll down
 
             // Add to internal history only if it's marked as complete
@@ -1667,11 +1690,18 @@
             let lastMessageDiv = chatMessages.lastElementChild;
 
             // If chat is empty or last message is from user, create a new assistant message div
+            let isNewMessage = false;
             if (!lastMessageDiv || !lastMessageDiv.classList.contains('assistant')) {
                 lastMessageDiv = document.createElement('div');
-                lastMessageDiv.classList.add('message', 'assistant', 'message-appear'); // Add animation class
+                lastMessageDiv.classList.add('message', 'assistant'); // Remove 'message-appear'
                 chatMessages.appendChild(lastMessageDiv);
+                isNewMessage = true;
             }
+
+            // --- Word Reveal: Cancel previous animation ---
+            const existingTimeoutIds = JSON.parse(lastMessageDiv.dataset.revealTimeouts || '[]');
+            existingTimeoutIds.forEach(clearTimeout);
+            // --- End Word Reveal ---
 
             // Append the chunk content to the existing text content
             // Store raw text in a data attribute or similar if needed, but for rendering, just append
@@ -1680,6 +1710,14 @@
 
             // Parse the *entire* accumulated raw text and update innerHTML
             lastMessageDiv.innerHTML = marked.parse(currentRawText);
+
+            // --- Word Reveal: Wrap new content and start animation ---
+            const wordSpans = wrapWordsInSpans(lastMessageDiv);
+            // Make animation faster for subsequent chunks to "catch up" visually
+            const animationDelay = isNewMessage ? 30 : 10; // Faster delay for updates
+            const timeoutIds = animateWords(wordSpans, animationDelay);
+            lastMessageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store new timeout IDs
+            // --- End Word Reveal ---
 
             // Scroll to bottom smoothly
             scrollToBottom(); // Always scroll when new chunks arrive
@@ -1825,6 +1863,64 @@
             updateStatusIndicator('idle'); // Ensure status is idle when stopped
             console.log('Stop function finished.');
         }
+
+        // --- Helper function to wrap words in spans for reveal effect ---
+        function wrapWordsInSpans(element) {
+            const spans = [];
+            const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+            let node;
+            const nodesToReplace = []; // Store [originalNode, replacementFragment] pairs
+
+            while (node = walker.nextNode()) {
+                // Ignore text nodes inside script/style tags or empty/whitespace-only nodes
+                if (node.parentNode.nodeName === 'SCRIPT' || node.parentNode.nodeName === 'STYLE' || !/\S/.test(node.nodeValue)) {
+                    continue;
+                }
+
+                const fragment = document.createDocumentFragment();
+                // Split text by spaces, keeping spaces attached to the preceding word or as separate elements
+                const wordsAndSpaces = node.nodeValue.split(/(\s+)/);
+
+                wordsAndSpaces.forEach(part => {
+                    if (/\S/.test(part)) { // It's a word
+                        const span = document.createElement('span');
+                        span.className = 'reveal-word';
+                        span.textContent = part;
+                        fragment.appendChild(span);
+                        spans.push(span); // Collect spans for animation
+                    } else if (part.length > 0) { // It's whitespace
+                        fragment.appendChild(document.createTextNode(part));
+                    }
+                });
+                nodesToReplace.push([node, fragment]);
+            }
+
+            // Replace original text nodes with the fragments containing spans
+            nodesToReplace.forEach(([originalNode, fragment]) => {
+                originalNode.parentNode.replaceChild(fragment, originalNode);
+            });
+
+            return spans; // Return the list of word spans
+        }
+
+        // --- Helper function to animate word spans sequentially ---
+        function animateWords(spans, delayPerWord = 30) { // Faster delay (30ms)
+            let delay = 0;
+            const timeoutIds = []; // Store timeout IDs for cancellation
+
+            spans.forEach(span => {
+                const timeoutId = setTimeout(() => {
+                    span.classList.add('visible');
+                }, delay);
+                timeoutIds.push(timeoutId);
+                delay += delayPerWord;
+            });
+
+            // Return the array of timeout IDs
+            return timeoutIds;
+        }
+        // --- End Helper Functions ---
+
 
         // Removed startButton event listener
 

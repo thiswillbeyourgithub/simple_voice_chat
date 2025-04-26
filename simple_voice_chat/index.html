@@ -663,15 +663,15 @@
 
             <!-- Options Row (Remains separate, below the main row) -->
             <div id="options-row">
-                 <!-- Model Selection Dropdown -->
-                 <div class="select-container">
-                    <label for="model-select" class="visually-hidden">Select Model:</label>
-                    <select id="model-select" class="styled-select">
+                 <!-- Model Selection Input with Datalist -->
+                 <div class="select-container"> <!-- Reusing container for layout -->
+                    <label for="model-input" class="visually-hidden">Select Model:</label>
+                    <input type="text" id="model-input" list="model-suggestions" class="styled-select" placeholder="Type to search models..."> <!-- Reusing styled-select class for now -->
+                    <datalist id="model-suggestions">
                         <!-- Options will be populated by JS -->
-                        <option value="">Loading Models...</option>
-                    </select>
+                    </datalist>
                 </div>
-                <!-- End Model Selection Dropdown -->
+                <!-- End Model Selection Input -->
                 <!-- Voice Selection Dropdown -->
                 <div class="select-container">
                     <label for="voice-select" class="visually-hidden">Select Voice:</label>
@@ -728,7 +728,8 @@
         const chatMessages = document.getElementById('chat-messages');
         // const modelCheckbox = document.getElementById('model-checkbox'); // Removed
         // const modelLabel = document.querySelector('label[for="model-checkbox"]'); // Removed
-        const modelSelect = document.getElementById('model-select');
+        const modelInput = document.getElementById('model-input'); // Changed from modelSelect
+        const modelSuggestions = document.getElementById('model-suggestions'); // Added for datalist
         const voiceSelect = document.getElementById('voice-select');
         const optionsButton = document.getElementById('options-button'); // Added
         const optionsRow = document.getElementById('options-row'); // Added
@@ -917,7 +918,7 @@
                 startButton.appendChild(text);
                 startButton.disabled = true;
                 startButton.classList.add('icon-with-spinner'); // Ensure class is added
-                modelSelect.disabled = true;
+                modelInput.disabled = true; // Changed from modelSelect
                 voiceSelect.disabled = true;
                 clearChatButton.disabled = true;
 
@@ -929,7 +930,7 @@
                 if (pulseCircle) pulseCircle.style.display = 'block'; // Show pulse circle
                 muteButton.style.display = 'inline-flex'; // Show mute button
 
-                modelSelect.disabled = true;
+                modelInput.disabled = false; // Allow changing model while connected // Changed from modelSelect
                 voiceSelect.disabled = false;
                 clearChatButton.disabled = false;
 
@@ -954,7 +955,7 @@
 
                 startButton.classList.remove('icon-with-spinner');
                 startButton.disabled = false;
-                modelSelect.disabled = false;
+                modelInput.disabled = false; // Changed from modelSelect
                 voiceSelect.disabled = false; // Enable voice select
                 clearChatButton.disabled = false; // Enable clear chat button
 
@@ -992,9 +993,9 @@
             }
 
             // Disable options row elements based on state as well
-            // Model select is disabled only if connecting (like voice select)
+            // Model input is disabled only if connecting
             // Voice select is disabled only if connecting
-            modelSelect.disabled = isConnecting; // Allow changing model while connected
+            modelInput.disabled = isConnecting; // Changed from modelSelect
             voiceSelect.disabled = isConnecting;
         }
 
@@ -1808,49 +1809,49 @@
                 }
 
                 selectedModel = data.current; // Set the initial selected model
-                modelSelect.innerHTML = ''; // Clear loading message
+                modelSuggestions.innerHTML = ''; // Clear loading message in datalist
+                modelInput.value = ''; // Clear input field initially
 
                 // Sort models alphabetically before populating
                 data.available.sort();
 
-                data.available.forEach(modelId => {
+                // Store all options for fuzzy search and populate datalist
+                allModelOptions = data.available.map(modelId => ({ value: modelId, text: modelId }));
+                console.log("Stored all model options:", allModelOptions);
+
+                allModelOptions.forEach(modelOption => {
                     const option = document.createElement('option');
-                    option.value = modelId;
-                    // Use the actual model ID as the display text
-                    option.textContent = modelId;
-                    modelSelect.appendChild(option);
+                    option.value = modelOption.value;
+                    // Datalist options often just need the value, the browser handles display matching
+                    // option.textContent = modelOption.text; // Not strictly necessary for datalist matching
+                    modelSuggestions.appendChild(option);
                 });
 
                 // Ensure the 'current' model from backend is actually in the list before setting
-                if (data.available.includes(selectedModel)) {
-                    modelSelect.value = selectedModel; // Set the dropdown to the current model
-                } else if (data.available.length > 0) {
+                if (allModelOptions.some(opt => opt.value === selectedModel)) {
+                    modelInput.value = selectedModel; // Set the input field to the current model
+                } else if (allModelOptions.length > 0) {
                     // If current model isn't listed (edge case), select the first available one
-                    console.warn(`Current model '${selectedModel}' not in available list. Selecting first available: '${data.available[0]}'`);
-                    selectedModel = data.available[0];
-                    modelSelect.value = selectedModel;
+                    console.warn(`Current model '${selectedModel}' not in available list. Selecting first available: '${allModelOptions[0].value}'`);
+                    selectedModel = allModelOptions[0].value;
+                    modelInput.value = selectedModel;
                 } else {
                     // No models available at all
                      console.error("No available models received from backend.");
-                     modelSelect.innerHTML = '<option value="">No models found</option>';
-                     modelSelect.disabled = true;
+                     modelInput.placeholder = 'No models found';
+                     modelInput.disabled = true;
                      return; // Stop further processing
                 }
 
-                modelSelect.disabled = false; // Enable dropdown after loading
+                modelInput.disabled = false; // Enable input field after loading
                 updateButtonState(); // Update general button state
 
             } catch (error) {
                 console.error('Error fetching available models:', error);
                 showToast('Failed to load available models.', 'error');
-                modelSelect.innerHTML = '<option value="">Error loading</option>';
-                modelSelect.disabled = true;
+                modelInput.placeholder = 'Error loading models';
+                modelInput.disabled = true;
             }
-
-            // Store all options for fuzzy search
-            allModelOptions = Array.from(modelSelect.options).map(opt => ({ value: opt.value, text: opt.textContent }));
-            console.log("Stored all model options for fuzzy search:", allModelOptions);
-
         }
         // --- End Fetch Models ---
 
@@ -2089,19 +2090,36 @@
         });
 
 
-        // Model selection change handler
-        modelSelect.addEventListener('change', async () => {
-            const newModelName = modelSelect.value;
+        // Model input change handler (triggered on blur or selecting from datalist)
+        modelInput.addEventListener('change', async () => {
+            const newModelName = modelInput.value.trim(); // Get value from input and trim whitespace
             const previousModelName = selectedModel; // Store previous model
-            console.log(`Model selected: ${newModelName}`);
+            console.log(`Model input changed to: ${newModelName}`);
 
             // *** Removed connection check and stop() call ***
             // const wasConnected = peerConnection && peerConnection.connectionState === 'connected';
             // if (wasConnected) {
             //     console.log("Stopping active connection due to model change.");
             //     stop();
-            //     await new Promise(resolve => setTimeout(resolve, 100)); // Short delay
             // }
+
+            // --- Input Validation ---
+            const isValidModel = allModelOptions.some(opt => opt.value === newModelName);
+            if (!isValidModel) {
+                console.warn(`Invalid model selected: "${newModelName}". Reverting.`);
+                showToast(`Model "${newModelName}" not found. Please select from the list.`, 'warning');
+                modelInput.value = previousModelName; // Revert input field to previous valid model
+                // Optionally focus the input again: modelInput.focus();
+                return; // Stop processing the change
+            }
+
+            // If the selected model is the same as the current one, do nothing
+            if (newModelName === previousModelName) {
+                console.log("Model selection hasn't changed. No action needed.");
+                return;
+            }
+            // --- End Input Validation ---
+
 
             try {
                 // Call the server endpoint to switch the model
@@ -2128,16 +2146,16 @@
                 // displayInitialSystemMessage();
 
                 // Display a notification about the model change
-                const friendlyModelName = modelSelect.options[modelSelect.selectedIndex].text; // Get display text
+                // Use the validated newModelName directly as it's the ID
                 // *** Updated toast message ***
-                const message = `Switched to ${friendlyModelName} model. Change will apply to the next AI response.`;
+                const message = `Switched to ${newModelName} model. Change will apply to the next AI response.`;
                 showToast(message, "warning");
 
             } catch (error) {
                 console.error('Error switching models:', error);
                 showToast(`Error switching model: ${error.message}`, 'error');
-                // Revert dropdown and local state if switch failed
-                modelSelect.value = previousModelName;
+                // Revert input field and local state if switch failed
+                modelInput.value = previousModelName;
                 selectedModel = previousModelName;
             } finally {
                  // Ensure button state is updated (might not be needed if stop() is removed, but safe)
@@ -2145,64 +2163,61 @@
             }
         });
 
-        // --- Model Select Fuzzy Search Listener ---
-        modelSelect.addEventListener('keydown', (event) => {
-            // Ignore if modifier keys are pressed (except Shift for typing)
-            if (event.metaKey || event.ctrlKey || event.altKey) {
-                return;
-            }
+        // --- Model Input Fuzzy Search & Datalist Update ---
+        modelInput.addEventListener('input', () => {
+            const query = modelInput.value.trim();
+            console.debug(`Input event: query="${query}"`);
 
-            // Handle Backspace
-            if (event.key === 'Backspace') {
-                modelSearchQuery = modelSearchQuery.slice(0, -1);
-                console.debug("Fuzzy search query:", modelSearchQuery);
-                event.preventDefault(); // Prevent browser back navigation if possible
-            }
-            // Handle printable characters (simplified check)
-            else if (event.key.length === 1 && event.key.match(/[\w\d\s\/\-\.]/i)) { // Allow letters, numbers, space, /, -, .
-                modelSearchQuery += event.key;
-                console.debug("Fuzzy search query:", modelSearchQuery);
-                event.preventDefault(); // Prevent default select behavior
-            }
-            // Handle Escape - clear query
-            else if (event.key === 'Escape') {
-                modelSearchQuery = '';
-                clearTimeout(modelSearchTimeout);
-                console.debug("Fuzzy search cleared by Escape.");
-                return; // Don't proceed to search
-            }
-            // Ignore other keys like Enter, Tab, Arrows etc. for now
-            else {
-                return;
-            }
-
-            // Clear previous timeout
+            // Clear previous timeout if user is still typing quickly
             clearTimeout(modelSearchTimeout);
 
-            // Set timeout to perform search after user stops typing
+            // Set timeout to update datalist after a short pause
             modelSearchTimeout = setTimeout(() => {
-                if (modelSearchQuery) {
-                    console.log(`Performing fuzzy search for: "${modelSearchQuery}"`);
-                    const bestMatch = findBestFuzzyMatch(modelSearchQuery, allModelOptions);
+                if (query === '') {
+                    // If input is empty, show all models
+                    modelSuggestions.innerHTML = ''; // Clear current suggestions
+                    allModelOptions.forEach(modelOption => {
+                        const option = document.createElement('option');
+                        option.value = modelOption.value;
+                        modelSuggestions.appendChild(option);
+                    });
+                    console.debug("Input empty, showing all models in datalist.");
+                } else {
+                    // Perform fuzzy search
+                    console.debug(`Performing fuzzy search for: "${query}"`);
+                    // Get top N matches (e.g., top 10)
+                    const maxSuggestions = 15;
+                    const matches = allModelOptions
+                        .map(option => ({
+                            option,
+                            matchResult: simpleFuzzyMatch(query, option.text) // Use existing fuzzy match
+                        }))
+                        .filter(item => item.matchResult.score > 0) // Keep only actual matches
+                        .sort((a, b) => {
+                            // Sort by score descending, then by first match index ascending
+                            if (b.matchResult.score !== a.matchResult.score) {
+                                return b.matchResult.score - a.matchResult.score;
+                            }
+                            return a.matchResult.firstMatchIndex - b.matchResult.firstMatchIndex;
+                        })
+                        .slice(0, maxSuggestions); // Limit number of suggestions
 
-                    if (bestMatch) {
-                        console.log("Best fuzzy match found:", bestMatch.text);
-                        if (modelSelect.value !== bestMatch.value) {
-                            modelSelect.value = bestMatch.value;
-                            // Manually trigger change event if value changed
-                            console.log("Triggering change event for model select due to fuzzy match.");
-                            modelSelect.dispatchEvent(new Event('change'));
-                        }
+                    modelSuggestions.innerHTML = ''; // Clear current suggestions
+                    if (matches.length > 0) {
+                        console.debug("Top fuzzy matches:", matches.map(m => m.option.text));
+                        matches.forEach(match => {
+                            const option = document.createElement('option');
+                            option.value = match.option.value;
+                            modelSuggestions.appendChild(option);
+                        });
                     } else {
-                        console.log("No fuzzy match found.");
-                        // Optional: revert to previous selection or do nothing
+                        console.debug("No fuzzy matches found.");
+                        // Optional: Add a "No matches" option? Datalist doesn't support this well.
                     }
                 }
-                // Reset query after search is performed (or timed out)
-                modelSearchQuery = '';
-            }, 500); // 500ms delay
+            }, 150); // 150ms delay - adjust as needed
         });
-        // --- End Model Select Fuzzy Search Listener ---
+        // --- End Model Input Fuzzy Search ---
 
 
         // Add keyboard shortcuts

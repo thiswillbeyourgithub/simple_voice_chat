@@ -2070,16 +2070,13 @@
             const previousModelName = selectedModel; // Store previous model
             console.log(`Model selected: ${newModelName}`);
 
-            const wasConnected = peerConnection && peerConnection.connectionState === 'connected';
-
-            // If there's an active connection, stop it *before* switching model
-            // This is generally safer as context might need resetting.
-            if (wasConnected) {
-                console.log("Stopping active connection due to model change.");
-                stop();
-                // Small delay might be needed if stop() is not fully synchronous
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
+            // *** Removed connection check and stop() call ***
+            // const wasConnected = peerConnection && peerConnection.connectionState === 'connected';
+            // if (wasConnected) {
+            //     console.log("Stopping active connection due to model change.");
+            //     stop();
+            //     await new Promise(resolve => setTimeout(resolve, 100)); // Short delay
+            // }
 
             try {
                 // Call the server endpoint to switch the model
@@ -2099,19 +2096,16 @@
 
                 selectedModel = newModelName; // Update state *after* successful switch confirmation
 
-                // Clear chat messages UI and internal history
-                chatMessages.innerHTML = '';
-                chatbotHistory = [];
-
-                // Reset cumulative costs when switching models
-                resetCumulativeCosts();
-
-                // Re-display the initial system message after clearing
-                displayInitialSystemMessage();
+                // *** Removed chat clearing, cost reset, and system message re-display ***
+                // chatMessages.innerHTML = '';
+                // chatbotHistory = [];
+                // resetCumulativeCosts();
+                // displayInitialSystemMessage();
 
                 // Display a notification about the model change
                 const friendlyModelName = modelSelect.options[modelSelect.selectedIndex].text; // Get display text
-                const message = `Switched to ${friendlyModelName} model.${wasConnected ? ' Connection stopped, click Start again.' : ''}`;
+                // *** Updated toast message ***
+                const message = `Switched to ${friendlyModelName} model. Change will apply to the next AI response.`;
                 showToast(message, "warning");
 
             } catch (error) {
@@ -2121,7 +2115,7 @@
                 modelSelect.value = previousModelName;
                 selectedModel = previousModelName;
             } finally {
-                 // Ensure button state is updated after potential stop()
+                 // Ensure button state is updated (might not be needed if stop() is removed, but safe)
                  updateButtonState();
             }
         });

@@ -957,6 +957,7 @@
 
             // Update Mute Button Icon/State if connected
             if (isConnected) {
+                updateStatusIndicator('idle'); // Hide connecting/disconnected status when connected
                 muteButton.innerHTML = ''; // Clear previous content
                 const micIcon = document.createElement('div');
                 micIcon.className = 'mute-toggle';

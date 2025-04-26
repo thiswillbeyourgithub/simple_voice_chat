@@ -843,7 +843,8 @@
         </div>
         <!-- Removed empty controls div -->
     </div>
-    <audio id="audio-output"></audio>
+    <audio id="audio-output"></audio> <!-- For WebRTC stream -->
+    <audio id="tts-playback-audio"></audio> <!-- For TTS file playback (replay) -->
 
     <!-- Removed Custom Context Menu HTML -->
 
@@ -877,7 +878,8 @@
         let allVoiceOptions = []; // To store { value: '...', text: '...' }
         // --- End Voice Fuzzy Search State ---
 
-        const audioOutput = document.getElementById('audio-output');
+        const audioOutput = document.getElementById('audio-output'); // For WebRTC stream
+        const ttsPlaybackAudio = document.getElementById('tts-playback-audio'); // For TTS file playback
         const muteArea = document.getElementById('mute-area');
         const muteButton = document.getElementById('mute-button');
         const chatMessages = document.getElementById('chat-messages');
@@ -903,9 +905,9 @@
         let currentAudioQueue = []; // Queue for replay audio sequence
         let isReplaying = false; // Flag to indicate if replay is active
 
-        // Add event listener for when the TTS audio finishes playing
-        audioOutput.addEventListener('ended', () => {
-            console.log("Audio output finished playing.");
+        // Add event listener for when the TTS file playback audio finishes playing
+        ttsPlaybackAudio.addEventListener('ended', () => {
+            console.log("TTS playback audio finished playing.");
             // If we are replaying, play the next item in the queue
             if (isReplaying && currentAudioQueue.length > 0) {
                 playNextInQueue();
@@ -2107,11 +2109,16 @@
             if (currentAudioQueue.length > 0) {
                 const audioFilename = currentAudioQueue.shift(); // Get the next filename
                 const audioUrl = `/tts_audio/${startupTimestampStr}/${audioFilename}`;
-                console.log(`Playing next in queue: ${audioUrl}`);
-                audioOutput.src = audioUrl;
-                audioOutput.play().catch(error => {
-                    console.error(`Error playing audio file ${audioFilename}:`, error);
-                    showToast(`Error playing audio: ${error.message}`, 'error');
+                console.log(`Playing next in queue via ttsPlaybackAudio: ${audioUrl}`);
+                ttsPlaybackAudio.src = audioUrl;
+                ttsPlaybackAudio.play().catch(error => {
+                    console.error(`Error playing audio file ${audioFilename} via ttsPlaybackAudio:`, error);
+                    // Check for specific errors like NotAllowedError (autoplay)
+                    if (error.name === 'NotAllowedError') {
+                        showToast('Playback blocked by browser. Click anywhere on the page first.', 'warning');
+                    } else {
+                        showToast(`Error playing audio: ${error.message}`, 'error');
+                    }
                     // Try playing the next one if this fails?
                     playNextInQueue();
                 });
@@ -2127,8 +2134,8 @@
                 return;
             }
             if (isReplaying) {
-                console.log("Already replaying, stopping previous sequence.");
-                audioOutput.pause(); // Stop current playback if any
+                console.log("Already replaying, stopping previous TTS playback sequence.");
+                ttsPlaybackAudio.pause(); // Stop current TTS file playback if any
                 currentAudioQueue = []; // Clear queue
             }
 

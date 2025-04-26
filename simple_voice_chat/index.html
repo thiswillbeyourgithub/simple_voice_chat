@@ -96,7 +96,17 @@
         /* Removed .mic-control-group styles */
 
 
-        /* Removed Model toggle styles */
+        /* Styles for the new options row */
+        #options-row {
+            display: none; /* Hidden by default */
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px; /* Space above the options row */
+            flex-wrap: wrap; /* Allow wrapping if needed */
+            width: 100%; /* Take full width */
+            box-sizing: border-box;
+        }
 
         /* Styles for select dropdowns (Model & Voice) */
         .select-container {
@@ -491,6 +501,15 @@
 
         /* Model selection styles */
 
+        /* Styles for the new Options button */
+        #options-button {
+            margin: 0;
+            white-space: nowrap;
+            padding: 12px; /* Square-ish */
+            min-width: 46px; /* Match height */
+            width: 46px; /* Fixed width */
+        }
+
         /* Removed Custom Context Menu Styles */
 
         /* Close Button Styles */
@@ -604,8 +623,23 @@
                 <span class="app-version">v__APP_VERSION__</span> <!-- Version placeholder -->
             </div>
             <div class="controls-container">
-                <!-- Model Selection Dropdown -->
-                <div class="select-container">
+                <!-- Options Button (Icon Only) -->
+                <button id="options-button" title="Show/Hide Options"></button> <!-- Icon set by JS -->
+                <!-- Clear Chat Button (Icon Only) -->
+                <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Icon set by JS -->
+                <!-- Mute Area now also contains the start button -->
+                <div id="mute-area"> <!-- Removed initial display: none; JS will handle visibility -->
+                    <!-- Start button added back here -->
+                    <button id="start-button">Start</button>
+                    <!-- Mute controls (initially hidden by JS) -->
+                    <div class="pulse-circle" style="display: none;"></div>
+                    <button id="mute-button" title="Toggle Mute (M)" style="display: none;"></button> <!-- Icon set by JS, kept title -->
+                </div>
+            </div>
+            <!-- New Options Row (Initially Hidden) -->
+            <div id="options-row">
+                 <!-- Model Selection Dropdown -->
+                 <div class="select-container">
                     <label for="model-select" class="visually-hidden">Select Model:</label>
                     <select id="model-select" class="styled-select">
                         <!-- Options will be populated by JS -->
@@ -622,18 +656,8 @@
                     </select>
                 </div>
                 <!-- End Voice Selection Dropdown -->
-                <!-- Clear Chat Button (Icon Only) -->
-                <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Removed text, added title -->
-                <!-- End Clear Chat Button -->
-                <!-- Mute Area now also contains the start button -->
-                <div id="mute-area"> <!-- Removed initial display: none; JS will handle visibility -->
-                    <!-- Start button added back here -->
-                    <button id="start-button">Start</button>
-                    <!-- Mute controls (initially hidden by JS) -->
-                    <div class="pulse-circle" style="display: none;"></div>
-                    <button id="mute-button" title="Toggle Mute (M)" style="display: none;"></button> <!-- Icon set by JS, kept title -->
-                </div>
             </div>
+            <!-- End Options Row -->
         </div>
 
         <div class="chat-container">
@@ -679,11 +703,13 @@
         const chatMessages = document.getElementById('chat-messages');
         // const modelCheckbox = document.getElementById('model-checkbox'); // Removed
         // const modelLabel = document.querySelector('label[for="model-checkbox"]'); // Removed
-        const modelSelect = document.getElementById('model-select'); // Added
+        const modelSelect = document.getElementById('model-select');
         const voiceSelect = document.getElementById('voice-select');
-        const clearChatButton = document.getElementById('clear-chat-button'); // Added
-        const statusIndicator = document.getElementById('status-indicator'); // Added
-        const statusSpinner = document.getElementById('status-spinner'); // Added
+        const optionsButton = document.getElementById('options-button'); // Added
+        const optionsRow = document.getElementById('options-row'); // Added
+        const clearChatButton = document.getElementById('clear-chat-button');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusSpinner = document.getElementById('status-spinner');
         const statusText = document.getElementById('status-text'); // Added
         // Removed contextMenu and copyButton variables
         const toastElement = document.getElementById('toast-notification'); // Added
@@ -905,20 +931,39 @@
                 startButton.appendChild(text);
             }
 
-            // Set Clear Chat button icon (always visible when not connecting)
+            // Set icons for Options and Clear Chat buttons (always visible when not connecting)
             // Ensure the mute button has a title attribute
             muteButton.title = isMuted ? "Unmute (M)" : "Mute (M)";
 
             if (!isConnecting) {
-                clearChatButton.innerHTML = ''; // Clear previous content (if any)
+                // Options Button Icon
+                optionsButton.innerHTML = ''; // Clear previous content
+                const optionsIcon = document.createElement('div');
+                optionsIcon.style.width = '20px'; // Adjust size as needed
+                optionsIcon.style.height = '20px';
+                optionsIcon.innerHTML = optionsIconSVG;
+                optionsButton.appendChild(optionsIcon);
+                optionsButton.disabled = false; // Enable options button when not connecting
+
+                // Clear Chat Button Icon
+                clearChatButton.innerHTML = ''; // Clear previous content
                 const trashIcon = document.createElement('div');
                 trashIcon.style.width = '20px'; // Adjust size as needed
                 trashIcon.style.height = '20px';
                 trashIcon.innerHTML = trashIconSVG;
                 clearChatButton.appendChild(trashIcon);
             } else {
-                clearChatButton.innerHTML = ''; // Clear icon when connecting
+                // Clear icons and disable options button when connecting
+                optionsButton.innerHTML = '';
+                optionsButton.disabled = true;
+                clearChatButton.innerHTML = '';
             }
+
+            // Disable options row elements based on state as well
+            // Model select is disabled if connecting OR connected
+            // Voice select is disabled only if connecting
+            modelSelect.disabled = isConnecting || isConnected;
+            voiceSelect.disabled = isConnecting;
         }
 
 
@@ -1895,6 +1940,14 @@
         fetchAndPopulateVoices(); // Fetch voices when the script runs
         displayInitialSystemMessage(); // Display system message after other initial setup
         updateStatusIndicator('idle'); // Ensure indicator is hidden initially
+
+        // --- Options Row Toggle ---
+        optionsButton.addEventListener('click', () => {
+            const isHidden = optionsRow.style.display === 'none' || optionsRow.style.display === '';
+            optionsRow.style.display = isHidden ? 'flex' : 'none';
+            console.log(`Options row toggled: ${isHidden ? 'shown' : 'hidden'}`);
+        });
+        // --- End Options Row Toggle ---
 
         // --- Cost Details Toggle ---
         costDisplayContainer.addEventListener('click', () => {

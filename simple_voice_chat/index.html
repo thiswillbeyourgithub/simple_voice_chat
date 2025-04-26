@@ -931,6 +931,7 @@
                 voiceInput.disabled = true; // Changed from voiceSelect
                 clearChatButton.style.display = 'none'; // Hide clear chat button
                 optionsButton.style.display = 'none'; // Hide options button
+                costDisplayContainer.style.display = 'none'; // Hide cost display
 
             } else if (isConnected) {
                 // Hide Start Button, Show Mute Controls
@@ -946,6 +947,8 @@
                 clearChatButton.style.display = 'inline-flex'; // Show clear chat button
                 optionsButton.disabled = false; // Enable options button
                 optionsButton.style.display = 'inline-flex'; // Show options button
+                costDisplayContainer.style.display = 'flex'; // Show cost display
+                costDisplayContainer.style.display = 'flex'; // Show cost display
 
                 // Update mute button icon/text
                 muteButton.innerHTML = '';

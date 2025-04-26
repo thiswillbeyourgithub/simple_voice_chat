@@ -2,7 +2,10 @@ import asyncio
 import io
 import json
 import re
+import tempfile
 import time
+import uuid
+from pathlib import Path
 from typing import List, Optional, Tuple, Set, Dict, Any  # Added Dict, Any
 
 import numpy as np
@@ -73,9 +76,12 @@ async def generate_tts_for_sentence(
     selected_voice: str,  # Pass the selected voice
     tts_speed: float,  # Pass the desired speed
     acronym_preserve_set: Set[str],  # Pass the set of acronyms to preserve
-) -> Tuple[int, np.ndarray] | None:
-    """Generates TTS for the given text, decodes, and returns audio data or None."""
-    # Removed global declarations, using passed parameters instead
+    temp_dir: Path,  # Directory to save temporary audio files
+) -> Path | None:
+    """
+    Generates TTS for the given text, saves it to a temporary MP3 file,
+    and returns the file path or None on failure.
+    """
 
     if not text or text.isspace():
         logger.warning(
@@ -170,19 +176,31 @@ async def generate_tts_for_sentence(
 
             if byte_count > 0:
                 tts_audio_bytes.seek(0)
-                # Run synchronous pydub decoding in a thread
-                audio_segment = await asyncio.to_thread(
-                    AudioSegment.from_file, tts_audio_bytes, format="mp3"
-                )
-                sample_rate = audio_segment.frame_rate
-                samples = np.array(audio_segment.get_array_of_samples()).astype(
-                    np.int16
-                )
 
-                logger.info(
-                    f"Finished TTS task for processed sentence after {time.time() - start_tts:.2f}s on attempt {attempt + 1} ({byte_count} bytes), returning decoded audio ({sample_rate} Hz, {samples.shape})"
-                )
-                return (sample_rate, samples)  # Return the audio data
+                # Create a non-deleting temporary file in the specified directory
+                # Use a unique name to avoid collisions
+                try:
+                    # Ensure temp_dir exists (it should, but double-check)
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    # Generate a unique filename
+                    temp_filename = f"tts_{uuid.uuid4()}.mp3"
+                    temp_filepath = temp_dir / temp_filename
+
+                    # Write the bytes to the file asynchronously if possible, or use thread
+                    # Using a simple synchronous write here for simplicity, consider async file I/O if performance critical
+                    with open(temp_filepath, "wb") as f:
+                         f.write(tts_audio_bytes.getvalue()) # Write all bytes at once
+
+                    logger.info(
+                        f"Finished TTS task for processed sentence after {time.time() - start_tts:.2f}s on attempt {attempt + 1} ({byte_count} bytes), saved to '{temp_filepath}'"
+                    )
+                    return temp_filepath # Return the Path object
+
+                except Exception as file_e:
+                    logger.error(f"Failed to save TTS audio to temporary file: {file_e}")
+                    last_tts_exception = file_e # Store file saving error as the last exception
+                    # Fall through to retry logic if applicable
+
             else:
                 logger.warning(
                     f"TTS generation attempt {attempt + 1} produced no audio bytes for processed sentence: '{processed_text[:50]}...'"

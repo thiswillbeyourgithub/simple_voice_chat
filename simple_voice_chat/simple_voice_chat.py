@@ -2,12 +2,19 @@ import argparse
 import json
 import random
 import os # Added for environment variable access if needed, though settings used directly
+import argparse
+import json
+import random
+import os
 import sys
 import threading
 import time
 import datetime
 import uvicorn
 import webbrowser
+import tempfile
+import shutil
+import uuid
 from pathlib import Path
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
@@ -95,6 +102,7 @@ IS_OPENAI_TTS: bool = False  # Flag to indicate if using OpenAI TTS
 IS_OPENAI_STT: bool = False  # Flag to indicate if using OpenAI STT
 CHAT_LOG_DIR: Optional[Path] = None  # Directory for chat logs
 STARTUP_TIMESTAMP_STR: Optional[str] = None  # Timestamp string for log filename
+TTS_AUDIO_DIR: Optional[Path] = None # Directory for temporary TTS audio files
 
 # --- State Variables (Managed during runtime) ---
 AVAILABLE_MODELS: List[str] = []
@@ -397,23 +405,39 @@ async def response(
                         logger.debug(
                             f"Generating TTS for sentence: '{sentence[:50]}...' ({len(sentence)} chars)"
                         )
-                        # Pass TTS config values from args (needs access) and module-level state/clients
-                        audio_result = await generate_tts_for_sentence(
+                        # Pass TTS config values from args, module-level state/clients, and the temp dir
+                        audio_file_path: Optional[Path] = await generate_tts_for_sentence(
                             sentence,
                             tts_client,  # Initialized client
                             args.tts_model,  # From args (needs access)
                             selected_voice,  # Current selected voice (module-level)
                             args.tts_speed,  # From args (needs access)
                             TTS_ACRONYM_PRESERVE_SET,  # Derived from args (module-level)
+                            TTS_AUDIO_DIR, # Pass the temp directory
                         )
-                        if audio_result:
-                            logger.debug(
-                                f"Yielding audio chunk for sentence: '{sentence[:50]}...'"
-                            )
-                            yield audio_result
+                        if audio_file_path:
+                            # Store the path (as string)
+                            tts_audio_file_paths.append(str(audio_file_path.resolve()))
+                            logger.debug(f"TTS audio saved to: {audio_file_path}")
+                            # Read audio from file for streaming playback
+                            try:
+                                # Run synchronous pydub decoding in a thread
+                                audio_segment = await asyncio.to_thread(
+                                    AudioSegment.from_file, audio_file_path, format="mp3"
+                                )
+                                sample_rate = audio_segment.frame_rate
+                                samples = np.array(audio_segment.get_array_of_samples()).astype(
+                                    np.int16
+                                )
+                                logger.debug(
+                                    f"Yielding audio chunk from file '{audio_file_path.name}' for sentence: '{sentence[:50]}...'"
+                                )
+                                yield (sample_rate, samples) # Yield decoded audio for playback
+                            except Exception as read_e:
+                                logger.error(f"Failed to read/decode TTS audio file {audio_file_path}: {read_e}")
                         else:
                             logger.warning(
-                                f"TTS failed for sentence, skipping audio yield: '{sentence[:50]}...'"
+                                f"TTS failed for sentence, skipping audio yield and file save: '{sentence[:50]}...'"
                             )
                     else:
                         logger.debug("Skipping empty line for TTS task.")
@@ -427,23 +451,39 @@ async def response(
             logger.debug(
                 f"Generating TTS for remaining buffer: '{remaining_sentence[:50]}...' ({len(remaining_sentence)} chars)"
             )
-            # Pass TTS config values from args (needs access) and module-level state/clients
-            audio_result = await generate_tts_for_sentence(
+            # Pass TTS config values from args, module-level state/clients, and the temp dir
+            audio_file_path: Optional[Path] = await generate_tts_for_sentence(
                 remaining_sentence,
                 tts_client,  # Initialized client
                 args.tts_model,  # From args (needs access)
                 selected_voice,  # Current selected voice (module-level)
                 args.tts_speed,  # From args (needs access)
                 TTS_ACRONYM_PRESERVE_SET,  # Derived from args (module-level)
+                TTS_AUDIO_DIR, # Pass the temp directory
             )
-            if audio_result:
-                logger.debug(
-                    f"Yielding audio chunk for remaining buffer: '{remaining_sentence[:50]}...'"
-                )
-                yield audio_result
+            if audio_file_path:
+                # Store the path (as string)
+                tts_audio_file_paths.append(str(audio_file_path.resolve()))
+                logger.debug(f"TTS audio saved to: {audio_file_path}")
+                # Read audio from file for streaming playback
+                try:
+                    # Run synchronous pydub decoding in a thread
+                    audio_segment = await asyncio.to_thread(
+                        AudioSegment.from_file, audio_file_path, format="mp3"
+                    )
+                    sample_rate = audio_segment.frame_rate
+                    samples = np.array(audio_segment.get_array_of_samples()).astype(
+                        np.int16
+                    )
+                    logger.debug(
+                        f"Yielding audio chunk from file '{audio_file_path.name}' for remaining buffer: '{remaining_sentence[:50]}...'"
+                    )
+                    yield (sample_rate, samples) # Yield decoded audio for playback
+                except Exception as read_e:
+                    logger.error(f"Failed to read/decode TTS audio file {audio_file_path}: {read_e}")
             else:
                 logger.warning(
-                    f"TTS failed for remaining buffer, skipping audio yield: '{remaining_sentence[:50]}...'"
+                    f"TTS failed for remaining buffer, skipping audio yield and file save: '{remaining_sentence[:50]}...'"
                 )
 
         llm_end_time = time.time()
@@ -518,7 +558,8 @@ async def response(
                 timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 llm_model=current_llm_model,
                 usage=final_usage_info, # This is the dict from LLM response
-                cost=cost_result # This is the dict calculated earlier {llm_cost..., tts_cost}
+                cost=cost_result, # This is the dict calculated earlier {llm_cost..., tts_cost}
+                tts_audio_file_paths=tts_audio_file_paths if tts_audio_file_paths else None # Add the list of audio file paths
             )
             # Create the full message object
             assistant_message_obj = ChatMessage(
@@ -665,6 +706,7 @@ class ChatMessageMetadata(BaseModel):
     usage: Optional[Dict[str, int]] = None # e.g., {'prompt_tokens': 50, 'completion_tokens': 100, 'total_tokens': 150}
     cost: Optional[Dict[str, Any]] = None # e.g., {'input_cost': 0.0001, 'output_cost': 0.0002, 'total_cost': 0.0003, 'tts_cost': 0.00005}
     stt_details: Optional[Dict[str, Any]] = None # e.g., {'no_speech_prob': 0.1, 'avg_logprob': -0.2}
+    tts_audio_file_paths: Optional[List[str]] = None # List of paths to saved TTS audio files for this message
 
 class ChatMessage(BaseModel):
     """Represents a single message in the chat history."""
@@ -1146,10 +1188,12 @@ def main() -> int:
     # Make globals modifiable within this function
     global args, llm_api_base, stt_api_base, tts_base_url, use_llm_proxy
     global TTS_ACRONYM_PRESERVE_SET, SYSTEM_MESSAGE, APP_PORT, IS_OPENAI_TTS, IS_OPENAI_STT
+    global args, llm_api_base, stt_api_base, tts_base_url, use_llm_proxy
+    global TTS_ACRONYM_PRESERVE_SET, SYSTEM_MESSAGE, APP_PORT, IS_OPENAI_TTS, IS_OPENAI_STT
     global AVAILABLE_MODELS, MODEL_COST_DATA, current_llm_model, AVAILABLE_VOICES_TTS
     global selected_voice, current_stt_language, tts_client, stt_client
     global uvicorn_server, pywebview_window  # For server/window management
-    global CHAT_LOG_DIR, STARTUP_TIMESTAMP_STR  # For chat logging
+    global CHAT_LOG_DIR, STARTUP_TIMESTAMP_STR, TTS_AUDIO_DIR # For chat/TTS logging
 
     # --- Record Startup Time ---
     startup_time = datetime.datetime.now()
@@ -1507,6 +1551,39 @@ def main() -> int:
     except Exception as e:
         logger.error(f"Failed to create chat log directory: {e}. Chat logging disabled.")
         CHAT_LOG_DIR = None  # Disable logging if directory creation fails
+
+    # --- Setup Temporary TTS Audio Directory ---
+    try:
+        # Create a unique, persistent directory for this run's TTS files
+        # Use platformdirs user_cache_dir as a base
+        app_name = "SimpleVoiceChat"
+        app_author = "Attila"
+        try:
+            cache_base_dir = Path(platformdirs.user_cache_dir(app_name, app_author))
+        except Exception:
+            logger.warning("Could not find user cache directory, falling back to user data directory for TTS audio.")
+            cache_base_dir = Path(platformdirs.user_data_dir(app_name, app_author))
+
+        # Create a subdirectory for TTS audio within the cache/data dir
+        tts_base_dir = cache_base_dir / "tts_audio"
+        tts_base_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a unique subdirectory for this specific run using the timestamp
+        TTS_AUDIO_DIR = tts_base_dir / STARTUP_TIMESTAMP_STR
+        TTS_AUDIO_DIR.mkdir(exist_ok=True) # Create the run-specific dir
+        logger.info(f"Temporary TTS audio directory set to: {TTS_AUDIO_DIR}")
+        # Note: We are NOT cleaning this up automatically on exit. Files persist.
+        # Manual cleanup or a separate cleanup script might be needed later.
+
+    except Exception as e:
+        logger.error(f"Failed to create temporary TTS audio directory: {e}. TTS audio saving might fail.")
+        # Attempt to fallback to system temp if platformdirs fails?
+        try:
+            TTS_AUDIO_DIR = Path(tempfile.mkdtemp(prefix="simple_voice_chat_tts_"))
+            logger.warning(f"Falling back to system temporary directory for TTS audio: {TTS_AUDIO_DIR}")
+        except Exception as fallback_e:
+            logger.critical(f"Failed to create any temporary TTS audio directory: {fallback_e}. Exiting.")
+            return 1 # Exit if we can't create any temp dir
 
     # --- Log Final Configuration ---
     logger.info(f"Logging level set to: {log_level}")

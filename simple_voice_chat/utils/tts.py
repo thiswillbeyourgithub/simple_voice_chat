@@ -77,10 +77,10 @@ async def generate_tts_for_sentence(
     tts_speed: float,  # Pass the desired speed
     acronym_preserve_set: Set[str],  # Pass the set of acronyms to preserve
     temp_dir: Path,  # Directory to save temporary audio files
-) -> Path | None:
+) -> str | None: # Changed return type hint to str | None
     """
     Generates TTS for the given text, saves it to a temporary MP3 file,
-    and returns the file path or None on failure.
+    and returns the filename string or None on failure.
     """
 
     if not text or text.isspace():

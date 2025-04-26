@@ -666,7 +666,8 @@
 
         .replay-button {
             position: absolute;
-            top: 8px; /* Adjust as needed */
+            top: 50%; /* Center vertically */
+            transform: translateY(-50%); /* Adjust for button height */
             right: -35px; /* Position outside the message bubble */
             width: 28px;
             height: 28px;
@@ -1077,9 +1078,13 @@
                 <circle cx="12" cy="12" r="3"></circle>
             </svg>`;
 
-        const playIconSVG = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <path d="M8 5v14l11-7z"/>
+        // Changed from play icon to a refresh/replay icon
+        const replayIconSVG = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6"></path>
+                <path d="M2.5 22v-6h6"></path>
+                <path d="M2 12a10 10 0 0 1 10-10c1.67 0 3.24.4 4.65 1.14"></path>
+                <path d="M22 12a10 10 0 0 1-10 10c-1.67 0-3.24-.4-4.65-1.14"></path>
             </svg>`;
 
 
@@ -1791,7 +1796,7 @@
                 const replayButton = document.createElement('button');
                 replayButton.className = 'replay-button';
                 replayButton.title = 'Replay audio';
-                replayButton.innerHTML = playIconSVG; // Add play icon
+                replayButton.innerHTML = replayIconSVG; // Use the new replay icon
                 messageDiv.appendChild(replayButton);
             }
             // --- End Replay Button ---
@@ -1850,7 +1855,7 @@
                 replayButton = document.createElement('button');
                 replayButton.className = 'replay-button';
                 replayButton.title = 'Replay audio';
-                replayButton.innerHTML = playIconSVG; // Add play icon
+                replayButton.innerHTML = replayIconSVG; // Use the new replay icon
                 lastMessageDiv.appendChild(replayButton);
 
                 chatMessages.appendChild(lastMessageDiv);
@@ -1867,7 +1872,7 @@
                     replayButton = document.createElement('button'); // Recreate button too
                     replayButton.className = 'replay-button';
                     replayButton.title = 'Replay audio';
-                    replayButton.innerHTML = playIconSVG;
+                    replayButton.innerHTML = replayIconSVG; // Use the new replay icon
                     lastMessageDiv.appendChild(replayButton);
                 }
                  if (!replayButton) { // Fallback if button missing
@@ -1875,7 +1880,7 @@
                     replayButton = document.createElement('button');
                     replayButton.className = 'replay-button';
                     replayButton.title = 'Replay audio';
-                    replayButton.innerHTML = playIconSVG;
+                    replayButton.innerHTML = replayIconSVG; // Use the new replay icon
                     lastMessageDiv.appendChild(replayButton);
                 }
             }

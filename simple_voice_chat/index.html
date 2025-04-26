@@ -976,13 +976,6 @@
                 }
 
 
-            } else { // Initial state or disconnected/failed
-                // Show Start Button (Initial State), Hide Mute Controls
-                startButton.style.display = 'inline-flex';
-                // if (pulseCircle) pulseCircle.style.display = 'none'; // Removed pulse circle logic
-                muteButton.style.display = 'none';
-                muteButton.classList.remove('muted'); // Ensure muted class is removed
-
             } else { // Initial state, connecting, or disconnected/failed
                 // Hide mute button if not connected
                 muteButton.style.display = 'none';

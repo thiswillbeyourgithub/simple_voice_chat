@@ -424,7 +424,7 @@ async def response(
                         )
                         # generate_tts_for_sentence now returns the filename (str) or None
                         if audio_file_path: # This is now the filename string
-                            tts_audio_file_paths.append(audio_file_path) # Store the filename
+                            tts_audio_file_paths.append(audio_file_path) # Store the filename string directly
                             full_audio_file_path = TTS_AUDIO_DIR / audio_file_path # Reconstruct full path for reading
                             logger.debug(f"TTS audio saved to: {full_audio_file_path}")
                             # Read audio from file for streaming playback
@@ -469,7 +469,7 @@ async def response(
             )
              # generate_tts_for_sentence now returns the filename (str) or None
             if audio_file_path: # This is now the filename string
-                tts_audio_file_paths.append(audio_file_path) # Store the filename
+                tts_audio_file_paths.append(audio_file_path) # Store the filename string directly
                 full_audio_file_path = TTS_AUDIO_DIR / audio_file_path # Reconstruct full path for reading
                 logger.debug(f"TTS audio saved to: {full_audio_file_path}")
                 # Read audio from file for streaming playback
@@ -514,7 +514,7 @@ async def response(
             )
              # generate_tts_for_sentence now returns the filename (str) or None
             if audio_file_path: # This is now the filename string
-                tts_audio_file_paths.append(audio_file_path) # Store the filename
+                tts_audio_file_paths.append(audio_file_path) # Store the filename string directly
                 full_audio_file_path = TTS_AUDIO_DIR / audio_file_path # Reconstruct full path for reading
                 logger.debug(f"TTS audio saved to: {full_audio_file_path}")
                 # Read audio from file for streaming playback

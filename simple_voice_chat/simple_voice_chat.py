@@ -1330,20 +1330,61 @@ def main() -> int:
     logger.remove()  # Remove default handler
 
     log_level = "DEBUG" if args.verbose else "INFO"
-    # Define format based on level
-    log_format_debug = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-    log_format_info = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <level>{message}</level>"
-    log_format = log_format_debug if log_level == "DEBUG" else log_format_info
+    # Define console format based on level (with color)
+    log_format_debug_console = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    log_format_info_console = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+    log_format_console = log_format_debug_console if log_level == "DEBUG" else log_format_info_console
 
+    # Define file format (without color)
+    log_format_file = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}"
+
+    # Add console logger
     logger.add(
         sys.stderr,
         level=log_level,
-        format=log_format,
+        format=log_format_console,
         colorize=True,
         enqueue=True,
         backtrace=args.verbose,  # Enable backtrace only in verbose mode
         diagnose=args.verbose,  # Enable diagnose only in verbose mode
     )
+
+    # --- Setup File Logging ---
+    try:
+        # Use platformdirs to find appropriate user log directory
+        app_name = "SimpleVoiceChat"  # Application name
+        app_author = "Attila"  # Optional: Author name
+        # Prefer user_log_dir, fallback to user_data_dir if needed/unavailable
+        try:
+            log_base_dir = Path(platformdirs.user_log_dir(app_name, app_author))
+        except Exception: # Handle potential errors finding log dir
+             logger.warning("Could not find user log directory, falling back to user data directory for logs.")
+             log_base_dir = Path(platformdirs.user_data_dir(app_name, app_author))
+
+        APP_LOG_DIR = log_base_dir / "logs"
+        APP_LOG_DIR.mkdir(parents=True, exist_ok=True)  # Create dir if not exists
+
+        # Construct log file path using the startup timestamp
+        log_file_path = APP_LOG_DIR / f"log_{STARTUP_TIMESTAMP_STR}.log"
+
+        # Add file logger
+        logger.add(
+            log_file_path,
+            level=log_level, # Use the same level as console for file
+            format=log_format_file, # Use non-colored format
+            rotation="10 MB",  # Rotate log file when it reaches 10 MB
+            retention="5 files",  # Keep the last 5 log files
+            encoding="utf-8",
+            enqueue=True, # Recommended for performance
+            backtrace=True, # Always include backtrace in file logs
+            diagnose=True, # Always include diagnose info in file logs
+        )
+        # Log the path *after* adding the file sink
+        logger.info(f"Logging to file: {log_file_path}")
+
+    except Exception as e:
+        logger.error(f"Failed to set up file logging: {e}. File logging disabled.")
+        # Continue without file logging if setup fails
 
     # Intercept standard logging messages
     # Set levels for libraries more finely if needed after interception

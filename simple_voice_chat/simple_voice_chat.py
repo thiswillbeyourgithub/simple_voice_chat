@@ -651,9 +651,10 @@ async def response(
 
     except Exception as e:
         # --- Error Handling Path ---
+        # Log type and message separately to avoid formatting errors with complex exception strings
         logger.error(
-            f"Error during LLM streaming or TTS processing: {e}", exc_info=True
-        )  # Add traceback
+            f"Error during LLM streaming or TTS processing: {type(e).__name__} - {e}", exc_info=True
+        )
         response_completed_normally = False  # Ensure this is false on exception
         llm_error_occurred = True  # Ensure error is flagged
 
@@ -706,7 +707,7 @@ class ChatMessageMetadata(BaseModel):
     """Optional metadata associated with a chat message."""
     timestamp: Optional[str] = None # ISO format timestamp
     llm_model: Optional[str] = None
-    usage: Optional[Dict[str, int]] = None # e.g., {'prompt_tokens': 50, 'completion_tokens': 100, 'total_tokens': 150}
+    usage: Optional[Dict[str, Any]] = None # Allow flexible structure for usage data from LLM
     cost: Optional[Dict[str, Any]] = None # e.g., {'input_cost': 0.0001, 'output_cost': 0.0002, 'total_cost': 0.0003, 'tts_cost': 0.00005}
     stt_details: Optional[Dict[str, Any]] = None # e.g., {'no_speech_prob': 0.1, 'avg_logprob': -0.2}
     tts_audio_file_paths: Optional[List[str]] = None # List of paths to saved TTS audio files for this message

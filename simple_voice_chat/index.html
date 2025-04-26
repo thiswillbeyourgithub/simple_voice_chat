@@ -93,7 +93,6 @@
         }
 
 
-        .header #start-button,
         .header #mute-button,
         .header #clear-chat-button {
             margin: 0;
@@ -767,7 +766,7 @@
         // --- End Voice Fuzzy Search State ---
 
         const audioOutput = document.getElementById('audio-output');
-        const startButton = document.getElementById('start-button');
+        // const startButton = document.getElementById('start-button'); // Removed
         const muteArea = document.getElementById('mute-area');
         const muteButton = document.getElementById('mute-button');
         const chatMessages = document.getElementById('chat-messages');
@@ -937,61 +936,33 @@
             // References are now global
             // const pulseCircle = muteArea.querySelector('.pulse-circle'); // Removed reference
 
-            // Clear start button content
-            startButton.innerHTML = '';
-
             const isConnecting = peerConnection && (peerConnection.connectionState === 'connecting' || peerConnection.connectionState === 'new');
             const isConnected = peerConnection && peerConnection.connectionState === 'connected';
+            const isDisconnected = !peerConnection || ['disconnected', 'failed', 'closed'].includes(peerConnection.connectionState);
 
             // Always keep muteArea visible in the layout
-            muteArea.style.display = 'flex'; // Use flex for internal alignment
+            muteArea.style.display = 'flex';
             muteArea.style.alignItems = 'center';
             muteArea.style.justifyContent = 'center';
-            // Optional: Set a min-width if needed to prevent layout shifts
-            // muteArea.style.minWidth = '150px'; // Example width
 
-            if (isConnecting) {
-                // Show Start Button (Connecting State), Hide Mute Controls
-                startButton.style.display = 'inline-flex';
-                // if (pulseCircle) pulseCircle.style.display = 'none'; // Removed pulse circle logic
-                muteButton.style.display = 'none';
+            // Show/Hide Mute Button based on connection state
+            muteButton.style.display = isConnected ? 'inline-flex' : 'none';
 
-                const spinner = document.createElement('div');
-                spinner.className = 'spinner';
-                const text = document.createElement('span');
-                text.textContent = 'Connecting...'; // Change text
-                startButton.classList.add('icon-with-spinner'); // Add class for layout
-                startButton.appendChild(spinner);
-                startButton.appendChild(text);
-                startButton.disabled = true;
-                startButton.classList.add('icon-with-spinner'); // Ensure class is added
-                modelInput.disabled = true;
-                voiceInput.disabled = true; // Changed from voiceSelect
-                sttLanguageInput.disabled = true; // Disable STT language input
-                clearChatButton.style.display = 'none'; // Hide clear chat button
-                optionsButton.style.display = 'none'; // Hide options button
-                costDisplayContainer.style.display = 'none'; // Hide cost display
+            // Enable/Disable controls based on connection state
+            modelInput.disabled = !isConnected;
+            voiceInput.disabled = !isConnected;
+            sttLanguageInput.disabled = !isConnected;
+            clearChatButton.disabled = !isConnected;
+            optionsButton.disabled = !isConnected;
 
-            } else if (isConnected) {
-                // Hide Start Button, Show Mute Controls
-                startButton.style.display = 'none';
-                startButton.classList.remove('icon-with-spinner'); // Remove class
-                startButton.disabled = true; // Keep disabled (though hidden)
-                // if (pulseCircle) pulseCircle.style.display = 'block'; // Removed pulse circle logic
-                muteButton.style.display = 'inline-flex'; // Show mute button
+            // Show/Hide controls and cost display based on connection state
+            clearChatButton.style.display = isConnected ? 'inline-flex' : 'none';
+            optionsButton.style.display = isConnected ? 'inline-flex' : 'none';
+            costDisplayContainer.style.display = isConnected ? 'flex' : 'none';
 
-                modelInput.disabled = false; // Allow changing model while connected
-                voiceInput.disabled = false; // Changed from voiceSelect
-                sttLanguageInput.disabled = false; // Enable STT language input
-                clearChatButton.disabled = false; // Enable clear chat button
-                clearChatButton.style.display = 'inline-flex'; // Show clear chat button
-                optionsButton.disabled = false; // Enable options button
-                optionsButton.style.display = 'inline-flex'; // Show options button
-                costDisplayContainer.style.display = 'flex'; // Show cost display
-                costDisplayContainer.style.display = 'flex'; // Show cost display
-
-                // Update mute button icon/text
-                muteButton.innerHTML = '';
+            // Update Mute Button Icon/State if connected
+            if (isConnected) {
+                muteButton.innerHTML = ''; // Clear previous content
                 const micIcon = document.createElement('div');
                 micIcon.className = 'mute-toggle';
                 micIcon.innerHTML = isMuted ? micMutedIconSVG : micIconSVG;
@@ -1017,27 +988,41 @@
                 muteButton.style.display = 'none';
                 muteButton.classList.remove('muted'); // Ensure muted class is removed
 
-                startButton.classList.remove('icon-with-spinner');
-                startButton.disabled = false;
-                modelInput.disabled = false;
-                voiceInput.disabled = false; // Enable voice input // Changed from voiceSelect
-                sttLanguageInput.disabled = false; // Enable STT language input
-                clearChatButton.disabled = false; // Enable clear chat button
-                clearChatButton.style.display = 'inline-flex'; // Show clear chat button
-                optionsButton.disabled = false; // Enable options button
-                optionsButton.style.display = 'inline-flex'; // Show options button
+            } else { // Initial state, connecting, or disconnected/failed
+                // Hide mute button if not connected
+                muteButton.style.display = 'none';
+                muteButton.classList.remove('muted'); // Ensure muted class is removed
 
-                const text = document.createElement('span'); // Reset text to "Start"
-                text.textContent = 'Start';
-                startButton.appendChild(text);
+                // Disable controls if not connected
+                modelInput.disabled = true;
+                voiceInput.disabled = true;
+                sttLanguageInput.disabled = true;
+                clearChatButton.disabled = true;
+                optionsButton.disabled = true;
+
+                // Hide controls and cost display if not connected
+                clearChatButton.style.display = 'none';
+                optionsButton.style.display = 'none';
+                costDisplayContainer.style.display = 'none';
+
+                // Optionally show a "Connecting..." or "Disconnected" message in the status indicator
+                if (isConnecting) {
+                    updateStatusIndicator('connecting', 'Connecting...');
+                } else if (isDisconnected) {
+                    // Don't show disconnected immediately on load, wait for failure/close
+                    if (peerConnection && ['disconnected', 'failed', 'closed'].includes(peerConnection.connectionState)) {
+                        updateStatusIndicator('disconnected', 'Disconnected');
+                    } else {
+                         updateStatusIndicator('idle'); // Idle before first connection attempt
+                    }
+                }
             }
 
-            // Set icons for Options and Clear Chat buttons (always visible when not connecting)
-            // Ensure the mute button has a title attribute
+            // Set icons for Options and Clear Chat buttons (only if connected)
             muteButton.title = isMuted ? "Unmute (M)" : "Mute (M)";
 
-            if (!isConnecting) {
-                // Options Button Icon
+            if (isConnected) {
+                 // Options Button Icon
                 optionsButton.innerHTML = ''; // Clear previous content
                 const optionsIcon = document.createElement('div');
                 optionsIcon.style.width = '20px'; // Adjust size as needed
@@ -1054,16 +1039,15 @@
                 trashIcon.innerHTML = trashIconSVG;
                 clearChatButton.appendChild(trashIcon);
             } else {
-                // Clear icons when connecting (buttons are hidden anyway)
+                // Clear icons when not connected
                 optionsButton.innerHTML = '';
                 clearChatButton.innerHTML = '';
-                // Disabling is handled elsewhere, hiding is the primary action now
             }
 
-            // Disable options row elements based on state as well
-            modelInput.disabled = isConnecting;
-            voiceInput.disabled = isConnecting; // Changed from voiceSelect
-            sttLanguageInput.disabled = isConnecting; // Disable STT language input when connecting
+            // Disable options row elements based on connection state
+            modelInput.disabled = !isConnected;
+            voiceInput.disabled = !isConnected;
+            sttLanguageInput.disabled = !isConnected;
         }
 
 
@@ -1179,10 +1163,8 @@
                 showToast("Failed to initialize connection.", "error");
                 updateButtonState(); // Reset button state
                 return;
-            }
-
-
-            updateButtonState(); // Show connecting state immediately
+            // updateButtonState(); // Show connecting state immediately - Now handled by connectionstatechange
+            updateStatusIndicator('connecting', 'Initializing...'); // Show initial status
 
             const timeoutId = setTimeout(() => {
                 showToast("Connection is taking longer than usual. Check network/VPN.", "warning");
@@ -2105,37 +2087,57 @@
             }
 
             if (autoStart) {
-                console.log("Auto-start enabled. Attempting to click Start button...");
-                // Ensure the start button is visible and enabled before clicking
-                if (startButton.style.display !== 'none' && !startButton.disabled) {
-                    startButton.click();
-                    console.log("Auto-start: Clicked Start button.");
+                console.log("Auto-start enabled. Initiating WebRTC setup...");
+                // Directly call setupWebRTC if not already connecting/connected
+                if (!peerConnection || !['connected', 'connecting', 'new'].includes(peerConnection.connectionState)) {
+                    // Perform the same pre-connection cleanup as the original start button click
+                    let initialSystemMessage = null;
+                    if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
+                        initialSystemMessage = chatbotHistory[0];
+                    }
+                    chatMessages.innerHTML = ''; // Clear UI
+                    chatbotHistory = []; // Clear history
+                    if (initialSystemMessage) { // Restore system message
+                        chatbotHistory.push(initialSystemMessage);
+                        renderSystemMessageUI(initialSystemMessage.content);
+                    }
+                    resetCumulativeCosts(); // Reset costs
+                    console.log("Auto-start: Chat cleared, costs reset, initiating WebRTC setup...");
+                    setupWebRTC(); // Start the connection
                 } else {
-                    console.warn("Auto-start: Start button not ready or visible yet. Retrying in 1 second...");
-                    // Retry once after a short delay, in case setup wasn't fully complete
-                    setTimeout(() => {
-                         if (startButton.style.display !== 'none' && !startButton.disabled) {
-                            startButton.click();
-                            console.log("Auto-start: Clicked Start button (retry).");
-                         } else {
-                             console.error("Auto-start: Failed to click Start button on retry.");
-                         }
-                    }, 1000); // 1 second delay
+                     console.log("Auto-start: Connection already active or starting.");
                 }
             } else {
-                console.log("Auto-start disabled.");
+                console.log("Auto-start disabled. Manual connection required (if applicable - now automatic).");
+                // Since start button is removed, we should probably always try to connect?
+                // Let's modify this to always attempt connection unless explicitly disabled via flag.
+                // For now, respecting the flag. If flag is false, nothing happens automatically.
             }
         }
 
         // Call tryAutoStart after initial setup functions are called
         // Use Promise.allSettled to wait for fetches, then try auto-start
         Promise.allSettled([
-            fetchAndPopulateModels(),
+            fetchAndPopulateModels(), // These return promises implicitly
             fetchAndPopulateVoices()
-        ]).then(() => {
-            console.log("Model and voice fetching settled.");
-            // Small delay to allow UI updates from fetches to potentially complete
-            setTimeout(tryAutoStart, 100);
+        ]).then((results) => {
+            console.log("Model and voice fetching settled:", results);
+            // Check if fetches were successful before attempting connection
+            const fetchesOk = results.every(result => result.status === 'fulfilled');
+            if (fetchesOk) {
+                console.log("Initial data loaded successfully. Proceeding with auto-start.");
+                // Small delay to allow UI updates from fetches to potentially complete
+                setTimeout(tryAutoStart, 100);
+            } else {
+                console.error("Failed to load initial model/voice data. Auto-start aborted.");
+                showToast("Failed to load initial data. Cannot connect.", "error");
+                updateStatusIndicator('error', 'Initialization failed');
+            }
+        }).catch(err => {
+             // This catch is for errors in Promise.allSettled itself (unlikely)
+             console.error("Error during initial data fetch settlement:", err);
+             showToast("Critical error during initialization.", "error");
+             updateStatusIndicator('error', 'Initialization error');
         });
         // --- End Auto Start Logic ---
 
@@ -2453,15 +2455,7 @@
                     toggleMute();
                  }
             }
-            // Start connection with Space bar when start button is visible and enabled
-            else if ((event.key === ' ' || event.code === 'Space') && !event.ctrlKey && !event.altKey && !event.metaKey) {
-                 if (startButton.style.display !== 'none' && !startButton.disabled) {
-                     // Prevent default space bar behavior (scrolling)
-                    event.preventDefault();
-                    // Simulate a click on the start button
-                    startButton.click();
-                 }
-            }
+            // Removed Space bar shortcut for Start button
             // Ctrl+R for Reset Chat
             else if (event.ctrlKey && event.key.toLowerCase() === 'r' && !event.altKey && !event.metaKey) {
                 if (clearChatButton.style.display !== 'none' && !clearChatButton.disabled) {

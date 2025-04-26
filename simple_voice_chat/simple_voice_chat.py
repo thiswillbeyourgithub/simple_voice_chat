@@ -1370,7 +1370,7 @@ def main() -> int:
         # Add file logger
         logger.add(
             log_file_path,
-            level=log_level, # Use the same level as console for file
+            level="DEBUG", # Always log DEBUG level to file
             format=log_format_file, # Use non-colored format
             rotation="10 MB",  # Rotate log file when it reaches 10 MB
             retention="5 files",  # Keep the last 5 log files
@@ -1379,8 +1379,8 @@ def main() -> int:
             backtrace=True, # Always include backtrace in file logs
             diagnose=True, # Always include diagnose info in file logs
         )
-        # Log the path *after* adding the file sink
-        logger.info(f"Logging to file: {log_file_path}")
+        # Log the path *after* adding the file sink (use debug level)
+        logger.debug(f"Logging to file: {log_file_path}")
 
     except Exception as e:
         logger.error(f"Failed to set up file logging: {e}. File logging disabled.")

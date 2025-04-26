@@ -1139,7 +1139,9 @@
         }
 
         async function setupWebRTC() {
-            // Create PeerConnection *before* updating state
+            updateStatusIndicator('connecting', 'Initializing...'); // Show initial status immediately
+
+            // Create PeerConnection
             const config = __RTC_CONFIGURATION__;
             if (!config) {
                  console.warn("RTC Configuration is missing. Using default (may not work with TURN).");
@@ -1150,9 +1152,9 @@
                 console.error("Failed to create RTCPeerConnection:", error);
                 showToast("Failed to initialize connection.", "error");
                 updateButtonState(); // Reset button state
-                return;
-            // updateButtonState(); // Show connecting state immediately - Now handled by connectionstatechange
-            updateStatusIndicator('connecting', 'Initializing...'); // Show initial status
+                updateStatusIndicator('error', 'Connection Init Failed'); // Update status on error
+                return; // Exit the function if connection creation fails
+            }
 
             const timeoutId = setTimeout(() => {
                 showToast("Connection is taking longer than usual. Check network/VPN.", "warning");

@@ -747,8 +747,7 @@
                    <input type="text" id="stt-language-input" class="styled-select" placeholder="STT Language (e.g., en)"> <!-- Reusing styled-select class -->
                </div>
                <!-- End STT Language Input -->
-               <!-- Debug Button (Icon Only) -->
-               <button id="debug-button" title="DevTools Enabled (Right-click page to Inspect)"></button> <!-- Icon set by JS -->
+               <!-- Debug Button Removed -->
            </div>
            <!-- End Options Row -->
        </div>
@@ -805,7 +804,7 @@
         const optionsButton = document.getElementById('options-button'); // Added
         const optionsRow = document.getElementById('options-row'); // Added
         const clearChatButton = document.getElementById('clear-chat-button');
-        const debugButton = document.getElementById('debug-button'); // Added
+        // const debugButton = document.getElementById('debug-button'); // Removed
         const statusIndicator = document.getElementById('status-indicator');
         const statusSpinner = document.getElementById('status-spinner');
         const statusText = document.getElementById('status-text'); // Added
@@ -1076,28 +1075,20 @@
                 trashIcon.innerHTML = trashIconSVG;
                 clearChatButton.appendChild(trashIcon);
 
-                // Debug Button Icon (only when connected and options row is visible)
-                // We add the icon regardless of options row visibility, but hide/show the button itself
-                debugButton.innerHTML = ''; // Clear previous content
-                const debugIcon = document.createElement('div');
-                debugIcon.style.width = '20px'; // Adjust size as needed
-                debugIcon.style.height = '20px';
-                debugIcon.innerHTML = debugIconSVG; // Use the new SVG
-                debugButton.appendChild(debugIcon);
-                // Visibility is handled by the options row toggle, enable/disable handled below
+                // Debug Button Icon Removed
 
             } else {
                 // Clear icons when not connected
                 optionsButton.innerHTML = '';
                 clearChatButton.innerHTML = '';
-                debugButton.innerHTML = ''; // Clear debug icon
+                // debugButton.innerHTML = ''; // Clear debug icon - Removed
             }
 
             // Disable options row elements based on connection state
             modelInput.disabled = !isConnected;
             voiceInput.disabled = !isConnected;
             sttLanguageInput.disabled = !isConnected;
-            debugButton.disabled = !isConnected; // Disable button if not connected
+            // debugButton.disabled = !isConnected; // Disable button if not connected - Removed
         }
 
 
@@ -2439,27 +2430,7 @@
         // --- End Select text on voice input focus ---
 
 
-        // --- Debug Button Listener ---
-        debugButton.addEventListener('click', async () => {
-            console.log("Debug button clicked.");
-            if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.show_debug_info === 'function') {
-                try {
-                    // Call the Python backend function just to log and confirm
-                    const result = await window.pywebview.api.show_debug_info();
-                    console.log("Debug info call result from backend:", result);
-                    // Show toast confirming action and reminding how to open
-                    showToast(result.message, 'warning'); // Use message from backend
-                } catch (error) {
-                    console.error("Error calling show_debug_info API:", error);
-                    showToast("Could not confirm debug status with backend.", "error");
-                }
-            } else {
-                // Fallback message if API call isn't possible (e.g., running in browser)
-                console.warn("Pywebview API for debug info not available (maybe running in browser?).");
-                showToast("Debug mode should be active. Right-click page to inspect.", "warning");
-            }
-        });
-        // --- End Debug Button Listener ---
+        // --- Debug Button Listener Removed ---
 
 
         // Add keyboard shortcuts

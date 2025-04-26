@@ -1054,12 +1054,7 @@ class Api:
         if self._window:
             self._window.destroy()
 
-    def show_debug_info(self):
-        """Logs info about debug mode and how to open DevTools."""
-        # This confirms to the user (via console log) that the mode is active
-        logger.info("Debug Button Clicked: Debug mode is active in pywebview.")
-        logger.info("To open DevTools: Right-click on the page and select 'Inspect' (macOS/Linux GTK/QT) or use platform-specific methods.")
-        return {"status": "info", "message": "Debug mode active. Right-click page to inspect."}
+    # Removed show_debug_info method as the button is gone
 
 
 # --- Heartbeat Globals ---

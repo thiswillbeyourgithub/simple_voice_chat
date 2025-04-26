@@ -1229,9 +1229,12 @@
                 muteButton.classList.remove('muted');
             }
             // The updateButtonState function will handle setting the icon correctly
-            updateButtonState();
+            // Play sound only when unmuting
+            if (!isMuted) {
+                playNotificationSound();
+            }
 
-            // Notification sound removed from here
+            updateButtonState();
         }
 
         function setupAudioVisualization(stream) {

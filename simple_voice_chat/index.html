@@ -679,15 +679,15 @@
                     </datalist>
                 </div>
                 <!-- End Model Selection Input -->
-                <!-- Voice Selection Dropdown -->
-                <div class="select-container">
-                    <label for="voice-select" class="visually-hidden">Select Voice:</label>
-                    <select id="voice-select" class="styled-select" title="Select the voice for Text-to-Speech output">
-                        <!-- Options will be populated by JS -->
-                        <option value="">Loading Voices...</option>
-                    </select>
-                </div>
-                <!-- End Voice Selection Dropdown -->
+                <!-- Voice Selection Input with Datalist -->
+                <div class="select-container"> <!-- Reusing container for layout -->
+                   <label for="voice-input" class="visually-hidden">Select Voice:</label>
+                   <input type="text" id="voice-input" list="voice-suggestions" class="styled-select" placeholder="Type to search voices..."> <!-- Reusing styled-select class -->
+                   <datalist id="voice-suggestions">
+                       <!-- Options will be populated by JS -->
+                   </datalist>
+               </div>
+               <!-- End Voice Selection Input -->
             </div>
             <!-- End Options Row -->
         </div>
@@ -717,11 +717,17 @@
         let cumulativeTtsCost = 0.0; // Added: TTS Cost
         let cumulativeTotalCost = 0.0; // Total
 
-        // --- Fuzzy Search State ---
+        // --- Model Fuzzy Search State ---
         let modelSearchQuery = '';
         let modelSearchTimeout = null;
         let allModelOptions = []; // To store { value: '...', text: '...' }
-        // --- End Fuzzy Search State ---
+        // --- End Model Fuzzy Search State ---
+
+        // --- Voice Fuzzy Search State ---
+        let voiceSearchQuery = '';
+        let voiceSearchTimeout = null;
+        let allVoiceOptions = []; // To store { value: '...', text: '...' }
+        // --- End Voice Fuzzy Search State ---
 
         const audioOutput = document.getElementById('audio-output');
         const startButton = document.getElementById('start-button');
@@ -730,9 +736,10 @@
         const chatMessages = document.getElementById('chat-messages');
         // const modelCheckbox = document.getElementById('model-checkbox'); // Removed
         // const modelLabel = document.querySelector('label[for="model-checkbox"]'); // Removed
-        const modelInput = document.getElementById('model-input'); // Changed from modelSelect
-        const modelSuggestions = document.getElementById('model-suggestions'); // Added for datalist
-        const voiceSelect = document.getElementById('voice-select');
+        const modelInput = document.getElementById('model-input');
+        const modelSuggestions = document.getElementById('model-suggestions');
+        const voiceInput = document.getElementById('voice-input'); // Changed from voiceSelect
+        const voiceSuggestions = document.getElementById('voice-suggestions'); // Added for datalist
         const optionsButton = document.getElementById('options-button'); // Added
         const optionsRow = document.getElementById('options-row'); // Added
         const clearChatButton = document.getElementById('clear-chat-button');
@@ -920,8 +927,8 @@
                 startButton.appendChild(text);
                 startButton.disabled = true;
                 startButton.classList.add('icon-with-spinner'); // Ensure class is added
-                modelInput.disabled = true; // Changed from modelSelect
-                voiceSelect.disabled = true;
+                modelInput.disabled = true;
+                voiceInput.disabled = true; // Changed from voiceSelect
                 clearChatButton.style.display = 'none'; // Hide clear chat button
                 optionsButton.style.display = 'none'; // Hide options button
 
@@ -933,8 +940,8 @@
                 if (pulseCircle) pulseCircle.style.display = 'block'; // Show pulse circle
                 muteButton.style.display = 'inline-flex'; // Show mute button
 
-                modelInput.disabled = false; // Allow changing model while connected // Changed from modelSelect
-                voiceSelect.disabled = false;
+                modelInput.disabled = false; // Allow changing model while connected
+                voiceInput.disabled = false; // Changed from voiceSelect
                 clearChatButton.disabled = false; // Enable clear chat button
                 clearChatButton.style.display = 'inline-flex'; // Show clear chat button
                 optionsButton.disabled = false; // Enable options button
@@ -961,8 +968,8 @@
 
                 startButton.classList.remove('icon-with-spinner');
                 startButton.disabled = false;
-                modelInput.disabled = false; // Changed from modelSelect
-                voiceSelect.disabled = false; // Enable voice select
+                modelInput.disabled = false;
+                voiceInput.disabled = false; // Enable voice input // Changed from voiceSelect
                 clearChatButton.disabled = false; // Enable clear chat button
                 clearChatButton.style.display = 'inline-flex'; // Show clear chat button
                 optionsButton.disabled = false; // Enable options button
@@ -1002,10 +1009,8 @@
             }
 
             // Disable options row elements based on state as well
-            // Model input is disabled only if connecting
-            // Voice select is disabled only if connecting
-            modelInput.disabled = isConnecting; // Changed from modelSelect
-            voiceSelect.disabled = isConnecting;
+            modelInput.disabled = isConnecting;
+            voiceInput.disabled = isConnecting; // Changed from voiceSelect
         }
 
 
@@ -1969,8 +1974,8 @@
             } catch (error) {
                 console.error('Error fetching available voices:', error);
                 showToast('Failed to load available voices.', 'error');
-                voiceSelect.innerHTML = '<option value="">Error loading</option>';
-                voiceSelect.disabled = true;
+                voiceInput.placeholder = 'Error loading voices';
+                voiceInput.disabled = true;
             }
         }
         // --- End Fetch Voices ---
@@ -2050,11 +2055,11 @@
         // --- End Auto Start Logic ---
 
 
-        // Voice selection change handler
-        voiceSelect.addEventListener('change', async () => {
-            const newVoice = voiceSelect.value;
+        // Voice input change handler (triggered on blur or selecting from datalist)
+        voiceInput.addEventListener('change', async () => {
+            const newVoice = voiceInput.value.trim(); // Get value from input and trim whitespace
             const previousVoice = selectedVoice;
-            console.log(`Voice selected: ${newVoice}`);
+            console.log(`Voice input changed to: ${newVoice}`);
 
             // *** Removed connection check and stop() call ***
             // const wasConnected = peerConnection && peerConnection.connectionState === 'connected';
@@ -2063,6 +2068,22 @@
             //     stop();
             //     await new Promise(resolve => setTimeout(resolve, 100)); // Short delay
             // }
+
+            // --- Input Validation ---
+            const isValidVoice = allVoiceOptions.some(opt => opt.value === newVoice);
+            if (!isValidVoice) {
+                console.warn(`Invalid voice selected: "${newVoice}". Reverting.`);
+                showToast(`Voice "${newVoice}" not found. Please select from the list.`, 'warning');
+                voiceInput.value = previousVoice; // Revert input field to previous valid voice
+                return; // Stop processing the change
+            }
+
+            // If the selected voice is the same as the current one, do nothing
+            if (newVoice === previousVoice) {
+                console.log("Voice selection hasn't changed. No action needed.");
+                return;
+            }
+            // --- End Input Validation ---
 
             try {
                 // Call the server endpoint to switch the voice preference
@@ -2081,16 +2102,15 @@
                 selectedVoice = newVoice; // Update JS state *after* successful confirmation
 
                 // Display notification
-                const friendlyVoiceName = voiceSelect.options[voiceSelect.selectedIndex].text;
-                // *** Updated toast message ***
-                let message = `Switched to ${friendlyVoiceName} voice. Change will apply to the next AI response.`;
+                // Use the validated newVoice directly as it's the ID/name
+                let message = `Switched to ${newVoice} voice. Change will apply to the next AI response.`;
                 showToast(message, "warning");
 
             } catch (error) {
                 console.error('Error switching voice:', error);
                 showToast(`Error switching voice: ${error.message}`, 'error');
-                // Revert dropdown and local state if switch failed
-                voiceSelect.value = previousVoice;
+                // Revert input field and local state if switch failed
+                voiceInput.value = previousVoice;
                 selectedVoice = previousVoice;
             } finally {
                 // Ensure button state is updated (might not be needed if stop() is removed, but safe)
@@ -2233,6 +2253,62 @@
             modelInput.select(); // Select all text in the input field on focus
         });
         // --- End Select text on model input focus ---
+
+        // --- Voice Input Fuzzy Search & Datalist Update ---
+        voiceInput.addEventListener('input', () => {
+            const query = voiceInput.value.trim();
+            console.debug(`Voice input event: query="${query}"`);
+
+            clearTimeout(voiceSearchTimeout);
+
+            voiceSearchTimeout = setTimeout(() => {
+                if (query === '') {
+                    voiceSuggestions.innerHTML = '';
+                    allVoiceOptions.forEach(voiceOption => {
+                        const option = document.createElement('option');
+                        option.value = voiceOption.value;
+                        voiceSuggestions.appendChild(option);
+                    });
+                    console.debug("Voice input empty, showing all voices in datalist.");
+                } else {
+                    console.debug(`Performing fuzzy search for voice: "${query}"`);
+                    const maxSuggestions = 15;
+                    const matches = allVoiceOptions
+                        .map(option => ({
+                            option,
+                            matchResult: simpleFuzzyMatch(query, option.text)
+                        }))
+                        .filter(item => item.matchResult.score > 0)
+                        .sort((a, b) => {
+                            if (b.matchResult.score !== a.matchResult.score) {
+                                return b.matchResult.score - a.matchResult.score;
+                            }
+                            return a.matchResult.firstMatchIndex - b.matchResult.firstMatchIndex;
+                        })
+                        .slice(0, maxSuggestions);
+
+                    voiceSuggestions.innerHTML = '';
+                    if (matches.length > 0) {
+                        console.debug("Top voice fuzzy matches:", matches.map(m => m.option.text));
+                        matches.forEach(match => {
+                            const option = document.createElement('option');
+                            option.value = match.option.value;
+                            voiceSuggestions.appendChild(option);
+                        });
+                    } else {
+                        console.debug("No voice fuzzy matches found.");
+                    }
+                }
+            }, 150); // 150ms delay
+        });
+        // --- End Voice Input Fuzzy Search ---
+
+        // --- Select text on voice input focus ---
+        voiceInput.addEventListener('focus', () => {
+            voiceInput.select(); // Select all text in the input field on focus
+        });
+        // --- End Select text on voice input focus ---
+
 
         // Add keyboard shortcuts
         document.addEventListener('keydown', (event) => {

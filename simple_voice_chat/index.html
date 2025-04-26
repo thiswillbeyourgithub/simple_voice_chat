@@ -604,7 +604,6 @@
                 <span class="app-version">v__APP_VERSION__</span> <!-- Version placeholder -->
             </div>
             <div class="controls-container">
-                <button id="start-button">Start</button>
                 <!-- Model Selection Dropdown -->
                 <div class="select-container">
                     <label for="model-select" class="visually-hidden">Select Model:</label>
@@ -828,6 +827,7 @@
 
         function updateButtonState() {
             // References are now global
+            const pulseCircle = muteArea.querySelector('.pulse-circle'); // Get pulse circle reference
 
             // Clear start button content
             startButton.innerHTML = '';
@@ -835,47 +835,66 @@
             const isConnecting = peerConnection && (peerConnection.connectionState === 'connecting' || peerConnection.connectionState === 'new');
             const isConnected = peerConnection && peerConnection.connectionState === 'connected';
 
+            // Always keep muteArea visible in the layout
+            muteArea.style.display = 'flex'; // Use flex for internal alignment
+            muteArea.style.alignItems = 'center';
+            muteArea.style.justifyContent = 'center';
+            // Optional: Set a min-width if needed to prevent layout shifts
+            // muteArea.style.minWidth = '150px'; // Example width
+
             if (isConnecting) {
-                startButton.style.display = 'inline-flex'; // Show start button
-                muteArea.style.display = 'none'; // Hide mute area
+                // Show Start Button (Connecting State), Hide Mute Controls
+                startButton.style.display = 'inline-flex';
+                if (pulseCircle) pulseCircle.style.display = 'none';
+                muteButton.style.display = 'none';
 
                 const spinner = document.createElement('div');
-                spinner.className = 'spinner'; // Add spinner
+                spinner.className = 'spinner';
                 const text = document.createElement('span');
                 text.textContent = 'Connecting...'; // Change text
                 startButton.classList.add('icon-with-spinner'); // Add class for layout
                 startButton.appendChild(spinner);
                 startButton.appendChild(text);
-                startButton.disabled = true; // Disable button
-                modelSelect.disabled = true; // Disable model select
-                voiceSelect.disabled = true; // Disable voice select
-                clearChatButton.disabled = true; // Disable clear chat button
+                startButton.disabled = true;
+                startButton.classList.add('icon-with-spinner'); // Ensure class is added
+                modelSelect.disabled = true;
+                voiceSelect.disabled = true;
+                clearChatButton.disabled = true;
 
             } else if (isConnected) {
-                startButton.style.display = 'none'; // Hide start button
+                // Hide Start Button, Show Mute Controls
+                startButton.style.display = 'none';
                 startButton.classList.remove('icon-with-spinner'); // Remove class
                 startButton.disabled = true; // Keep disabled (though hidden)
-                muteArea.style.display = 'flex'; // Show mute area
-                modelSelect.disabled = true; // Keep model select disabled while connected
-                voiceSelect.disabled = false; // *** Allow voice select while connected ***
-                clearChatButton.disabled = false; // Enable clear chat button while connected
+                if (pulseCircle) pulseCircle.style.display = 'block'; // Show pulse circle
+                muteButton.style.display = 'inline-flex'; // Show mute button
+
+                modelSelect.disabled = true;
+                voiceSelect.disabled = false;
+                clearChatButton.disabled = false;
 
                 // Update mute button icon/text
-                muteButton.innerHTML = ''; // Clear previous content
+                muteButton.innerHTML = '';
                 const micIcon = document.createElement('div');
-                micIcon.className = 'mute-toggle'; // Use existing class for size
+                micIcon.className = 'mute-toggle';
                 micIcon.innerHTML = isMuted ? micMutedIconSVG : micIconSVG;
-                // const text = document.createElement('span'); // Removed text element
-                // text.textContent = isMuted ? 'Unmute' : 'Mute'; // Removed text content
                 muteButton.appendChild(micIcon);
-                // muteButton.appendChild(text); // Removed appending text
+                // Ensure pulse circle muted state is correct
+                if (pulseCircle) {
+                    if (isMuted) pulseCircle.classList.add('muted');
+                    else pulseCircle.classList.remove('muted');
+                }
+
 
             } else { // Initial state or disconnected/failed
-                startButton.style.display = 'inline-flex'; // Show start button
-                muteArea.style.display = 'none'; // Hide mute area
-                startButton.classList.remove('icon-with-spinner'); // Remove class
-                startButton.disabled = false; // Enable start button
-                modelSelect.disabled = false; // Enable model select
+                // Show Start Button (Initial State), Hide Mute Controls
+                startButton.style.display = 'inline-flex';
+                if (pulseCircle) pulseCircle.style.display = 'none';
+                muteButton.style.display = 'none';
+
+                startButton.classList.remove('icon-with-spinner');
+                startButton.disabled = false;
+                modelSelect.disabled = false;
                 voiceSelect.disabled = false; // Enable voice select
                 clearChatButton.disabled = false; // Enable clear chat button
 

@@ -15,6 +15,7 @@ import webbrowser
 import tempfile
 import shutil
 import uuid
+import asyncio
 from pathlib import Path
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
@@ -41,6 +42,7 @@ from fastrtc import (
 from gradio.utils import get_space # Keep for get_twilio_turn_credentials check
 from openai import OpenAI, AuthenticationError
 from pydantic import BaseModel
+from pydub import AudioSegment
 
 # Import raw environment variable accessors
 # These will be used as defaults for argparse arguments

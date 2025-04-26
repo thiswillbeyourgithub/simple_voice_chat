@@ -1939,36 +1939,39 @@
                 }
 
                 selectedVoice = data.current; // Set the initial selected voice from backend
-                voiceSelect.innerHTML = ''; // Clear loading message
+                voiceSuggestions.innerHTML = ''; // Clear loading message in datalist
+                voiceInput.value = ''; // Clear input field initially
 
                 // Sort voices alphabetically before populating
                 data.available.sort();
 
-                data.available.forEach(voiceId => {
+                // Store all options for fuzzy search and populate datalist
+                allVoiceOptions = data.available.map(voiceId => ({ value: voiceId, text: voiceId }));
+                console.log("Stored all voice options:", allVoiceOptions);
+
+                allVoiceOptions.forEach(voiceOption => {
                     const option = document.createElement('option');
-                    option.value = voiceId;
-                    // Use the voice ID directly without changing case
-                    option.textContent = voiceId;
-                    voiceSelect.appendChild(option);
+                    option.value = voiceOption.value;
+                    voiceSuggestions.appendChild(option);
                 });
 
                 // Ensure the 'current' voice from backend is actually in the list before setting
-                if (data.available.includes(selectedVoice)) {
-                    voiceSelect.value = selectedVoice; // Set the dropdown to the current voice
-                } else if (data.available.length > 0) {
+                if (allVoiceOptions.some(opt => opt.value === selectedVoice)) {
+                    voiceInput.value = selectedVoice; // Set the input field to the current voice
+                } else if (allVoiceOptions.length > 0) {
                     // If current voice isn't listed (edge case), select the first available one
-                    console.warn(`Current voice '${selectedVoice}' not in available list. Selecting first available: '${data.available[0]}'`);
-                    selectedVoice = data.available[0];
-                    voiceSelect.value = selectedVoice;
+                    console.warn(`Current voice '${selectedVoice}' not in available list. Selecting first available: '${allVoiceOptions[0].value}'`);
+                    selectedVoice = allVoiceOptions[0].value;
+                    voiceInput.value = selectedVoice;
                 } else {
                     // No voices available at all
                      console.error("No available voices received from backend.");
-                     voiceSelect.innerHTML = '<option value="">No voices found</option>';
-                     voiceSelect.disabled = true;
+                     voiceInput.placeholder = 'No voices found'; // Update placeholder
+                     voiceInput.disabled = true;
                      return; // Stop further processing
                 }
 
-                voiceSelect.disabled = false; // Enable dropdown after loading
+                voiceInput.disabled = false; // Enable input field after loading
                 updateButtonState(); // Update general button state
 
             } catch (error) {

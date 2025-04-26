@@ -1229,9 +1229,12 @@
                 muteButton.classList.remove('muted');
             }
             // The updateButtonState function will handle setting the icon correctly
-            updateButtonState();
+            // Play sound only when unmuting
+            if (!isMuted) {
+                playNotificationSound();
+            }
 
-            // Notification sound removed from here
+            updateButtonState();
         }
 
         function setupAudioVisualization(stream) {
@@ -1253,7 +1256,7 @@
                     // Scale audio level more aggressively for better visual feedback
                     // Scale audio level more aggressively for better visual feedback, map to 0-1 range for opacity
                     // Lower values are less sensitive, higher values more sensitive
-                    const sensitivityFactor = 2.5;
+                    const sensitivityFactor = 3.5; // Increased sensitivity
                     audioLevel = Math.min(1, (average / 255) * sensitivityFactor);
 
                     // Update CSS variable for the indicator's opacity inside the mute button
@@ -1261,7 +1264,7 @@
                     if (indicatorSpan) {
                         // Set opacity directly based on audioLevel (0 to 1)
                         // Add a minimum opacity floor so it's slightly visible even with low noise
-                        const minOpacity = 0.05;
+                        const minOpacity = 0.15; // Increased minimum opacity
                         const opacity = isMuted ? 0 : minOpacity + audioLevel * (1 - minOpacity);
                         indicatorSpan.style.setProperty('--audio-level-opacity', opacity);
                     }

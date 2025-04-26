@@ -219,7 +219,34 @@
         .chat-messages::-webkit-scrollbar-thumb:hover {
             background-color: #777; /* Slightly lighter grey on hover (when thumb is visible) */
         }
-        /* End Custom Scrollbar Styles */
+
+        /* Apply similar styles to the main body scrollbar (horizontal and vertical) */
+        html::-webkit-scrollbar,
+        body::-webkit-scrollbar {
+            width: 8px; /* Width for vertical scrollbar */
+            height: 8px; /* Height for horizontal scrollbar */
+        }
+
+        html::-webkit-scrollbar-track,
+        body::-webkit-scrollbar-track {
+            background: #1a1a1a; /* Dark background for the track */
+            border-radius: 4px;
+        }
+
+        html::-webkit-scrollbar-thumb,
+        body::-webkit-scrollbar-thumb {
+            background-color: #555; /* Dark grey for the thumb */
+            border-radius: 4px;
+            border: 2px solid #1a1a1a; /* Match track background for border */
+            background-clip: padding-box;
+            transition: background-color 0.2s ease-in-out;
+        }
+
+        html::-webkit-scrollbar-thumb:hover,
+        body::-webkit-scrollbar-thumb:hover {
+            background-color: #777; /* Slightly lighter grey on hover */
+        }
+        /* End Body Scrollbar Styles */
 
         .message {
             margin-bottom: 20px;

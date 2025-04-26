@@ -658,6 +658,57 @@
             opacity: 1;
         }
         /* End Word Reveal Styles */
+
+        /* Replay Button Styles */
+        .message {
+            position: relative; /* Needed for absolute positioning of the button */
+        }
+
+        .replay-button {
+            position: absolute;
+            top: 8px; /* Adjust as needed */
+            right: -35px; /* Position outside the message bubble */
+            width: 28px;
+            height: 28px;
+            background-color: #333; /* Dark grey background */
+            color: #ccc; /* Light grey icon color */
+            border: 1px solid #444;
+            border-radius: 50%; /* Make it round */
+            cursor: pointer;
+            display: flex; /* Center icon */
+            align-items: center;
+            justify-content: center;
+            padding: 0; /* Remove default button padding */
+            opacity: 0; /* Hidden by default */
+            transition: opacity 0.2s ease-in-out, background-color 0.2s;
+            z-index: 5; /* Ensure it's above message content */
+            /* Override general button styles */
+            min-width: auto;
+            text-transform: none;
+            letter-spacing: normal;
+            gap: 0;
+            font-size: 14px; /* Adjust icon size if needed */
+        }
+
+        .message.assistant:hover .replay-button {
+            opacity: 1; /* Show on hover of assistant message */
+        }
+
+        .replay-button:hover {
+            background-color: #444; /* Slightly lighter on hover */
+            color: #fff;
+            /* Override general button hover */
+            transform: none;
+            box-shadow: none;
+            border-width: 1px;
+        }
+
+        .replay-button svg {
+            width: 16px; /* Adjust icon size */
+            height: 16px;
+        }
+        /* End Replay Button Styles */
+
     </style>
 </head>
 
@@ -670,6 +721,8 @@
     <script id="system-message-data" type="application/json">__SYSTEM_MESSAGE_JSON__</script>
     <!-- Placeholder for initial STT language from backend -->
     <script id="stt-language-data" type="application/json">__STT_LANGUAGE_JSON__</script>
+    <!-- Placeholder for startup timestamp from backend -->
+    <script id="startup-timestamp-data" type="application/json">__STARTUP_TIMESTAMP_STR__</script>
     <div class="container">
         <div class="header">
             <!-- New Main Row for Title, Cost, Controls -->
@@ -783,6 +836,7 @@
         let selectedModel = ''; // Store the currently selected model name
         let selectedVoice = ""; // Track selected voice in JS, initialized after fetch
         let selectedSttLanguage = ""; // Track selected STT language
+        let startupTimestampStr = ""; // Added: Store startup timestamp for audio URLs
         let chatbotHistory = []; // Added: Store chatbot history for input hook
         let cumulativeInputCost = 0.0; // LLM Input
         let cumulativeOutputCost = 0.0; // LLM Output
@@ -823,11 +877,19 @@
         const toastElement = document.getElementById('toast-notification'); // Added
         const costDisplayContainer = document.getElementById('cost-display'); // Added back
         const costDetails = document.getElementById('cost-details'); // Added
+        let currentAudioQueue = []; // Queue for replay audio sequence
+        let isReplaying = false; // Flag to indicate if replay is active
 
-        // Add event listener for when the TTS audio finishes playing (Removed notification sound)
+        // Add event listener for when the TTS audio finishes playing
         audioOutput.addEventListener('ended', () => {
             console.log("Audio output finished playing.");
-            // Notification sound removed from here
+            // If we are replaying, play the next item in the queue
+            if (isReplaying && currentAudioQueue.length > 0) {
+                playNextInQueue();
+            } else {
+                isReplaying = false; // Replay finished or queue empty
+                console.log("Replay sequence finished or queue empty.");
+            }
         });
 
         // Configure marked globally to treat single newlines as <br>
@@ -982,6 +1044,11 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
                 <circle cx="12" cy="12" r="3"></circle>
+            </svg>`;
+
+        const playIconSVG = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <path d="M8 5v14l11-7z"/>
             </svg>`;
 
 
@@ -1528,8 +1595,32 @@
                     console.log("Final chatbot state event received:", eventJson);
                     if (eventJson.history && Array.isArray(eventJson.history)) {
                         // Update the frontend's history with the definitive state from the backend
-                        chatbotHistory = eventJson.history;
+                        chatbotHistory = eventJson.history; // chatbotHistory now contains dicts with metadata
                         console.debug("Updated chatbotHistory from final_chatbot_state:", chatbotHistory);
+
+                        // --- Store audio filenames from final history ---
+                        // Find the last assistant message in the updated history
+                        const lastAssistantMsgIndex = chatbotHistory.slice().reverse().findIndex(msg => msg.role === 'assistant');
+                        if (lastAssistantMsgIndex !== -1) {
+                            const finalAssistantMsg = chatbotHistory[chatbotHistory.length - 1 - lastAssistantMsgIndex];
+                            const audioFiles = finalAssistantMsg.metadata?.tts_audio_file_paths;
+
+                            // Find the corresponding message div in the UI
+                            const messageDivs = chatMessages.querySelectorAll('.message.assistant');
+                            const lastMessageDiv = messageDivs[messageDivs.length - 1]; // Get the last one
+
+                            if (lastMessageDiv && audioFiles && audioFiles.length > 0) {
+                                // Store the filenames as JSON string in a data attribute
+                                lastMessageDiv.dataset.audioFiles = JSON.stringify(audioFiles);
+                                console.debug(`Stored audio filenames on last assistant message div:`, audioFiles);
+                            } else if (lastMessageDiv) {
+                                console.debug("No audio files found in metadata for the last assistant message.");
+                                // Ensure attribute is removed if no files
+                                delete lastMessageDiv.dataset.audioFiles;
+                            }
+                        }
+                        // --- End Store audio filenames ---
+
                         // Send this updated history to the backend immediately
                         sendInputHook();
 
@@ -1649,19 +1740,39 @@
             // Add to UI - Parse content as Markdown
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message', role); // Remove 'message-appear' for now, reveal handles visual entry
-            // Use marked.parse() and set innerHTML
-            messageDiv.innerHTML = marked.parse(content);
+
+            // Use marked.parse() and set innerHTML for the main content
+            const contentSpan = document.createElement('span'); // Wrap content
+            contentSpan.innerHTML = marked.parse(content);
+            messageDiv.appendChild(contentSpan);
+
+            // --- Add Replay Button for Assistant Messages ---
+            if (role === 'assistant') {
+                // Extract audio filenames from metadata (passed via chatbot_update event)
+                // The 'message' object yielded by the backend should contain the metadata
+                // We need to ensure the 'message' object passed to addMessage contains this.
+                // Let's assume the caller of addMessage passes the full message object including metadata.
+                // We'll retrieve it later when the button is clicked.
+                // For now, just add the button structure.
+                const replayButton = document.createElement('button');
+                replayButton.className = 'replay-button';
+                replayButton.title = 'Replay audio';
+                replayButton.innerHTML = playIconSVG; // Add play icon
+                messageDiv.appendChild(replayButton);
+            }
+            // --- End Replay Button ---
+
             chatMessages.appendChild(messageDiv);
 
-            // --- Word Reveal ---
+            // --- Word Reveal (Apply only to the content span) ---
             // Cancel any previous animation on this div (shouldn't happen for addMessage, but good practice)
             const existingTimeoutIds = JSON.parse(messageDiv.dataset.revealTimeouts || '[]');
             existingTimeoutIds.forEach(clearTimeout);
 
-            // Wrap words and start animation
-            const wordSpans = wrapWordsInSpans(messageDiv);
+            // Wrap words and start animation (target the contentSpan)
+            const wordSpans = wrapWordsInSpans(contentSpan); // Target the span
             const timeoutIds = animateWords(wordSpans);
-            messageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store timeout IDs
+            messageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store timeout IDs on parent div
             // --- End Word Reveal ---
 
             scrollToBottom(); // Scroll down
@@ -1691,12 +1802,50 @@
 
             // If chat is empty or last message is from user, create a new assistant message div
             let isNewMessage = false;
+            let contentSpan; // Span to hold the actual text content
+            let replayButton; // Replay button element
+
             if (!lastMessageDiv || !lastMessageDiv.classList.contains('assistant')) {
                 lastMessageDiv = document.createElement('div');
                 lastMessageDiv.classList.add('message', 'assistant'); // Remove 'message-appear'
+
+                // Create content span and replay button when creating the new message div
+                contentSpan = document.createElement('span');
+                lastMessageDiv.appendChild(contentSpan);
+
+                replayButton = document.createElement('button');
+                replayButton.className = 'replay-button';
+                replayButton.title = 'Replay audio';
+                replayButton.innerHTML = playIconSVG; // Add play icon
+                lastMessageDiv.appendChild(replayButton);
+
                 chatMessages.appendChild(lastMessageDiv);
                 isNewMessage = true;
+            } else {
+                // Find existing content span and replay button
+                contentSpan = lastMessageDiv.querySelector('span'); // Assume first span is content
+                replayButton = lastMessageDiv.querySelector('.replay-button');
+                if (!contentSpan) { // Fallback if span structure somehow missing
+                    console.warn("Could not find content span in existing assistant message. Recreating structure.");
+                    lastMessageDiv.innerHTML = ''; // Clear potentially broken structure
+                    contentSpan = document.createElement('span');
+                    lastMessageDiv.appendChild(contentSpan);
+                    replayButton = document.createElement('button'); // Recreate button too
+                    replayButton.className = 'replay-button';
+                    replayButton.title = 'Replay audio';
+                    replayButton.innerHTML = playIconSVG;
+                    lastMessageDiv.appendChild(replayButton);
+                }
+                 if (!replayButton) { // Fallback if button missing
+                    console.warn("Could not find replay button in existing assistant message. Adding one.");
+                    replayButton = document.createElement('button');
+                    replayButton.className = 'replay-button';
+                    replayButton.title = 'Replay audio';
+                    replayButton.innerHTML = playIconSVG;
+                    lastMessageDiv.appendChild(replayButton);
+                }
             }
+
 
             // --- Word Reveal: Cancel previous animation ---
             const existingTimeoutIds = JSON.parse(lastMessageDiv.dataset.revealTimeouts || '[]');
@@ -1706,17 +1855,17 @@
             // Append the chunk content to the existing text content
             // Store raw text in a data attribute or similar if needed, but for rendering, just append
             const currentRawText = (lastMessageDiv.dataset.rawText || '') + chunkContent;
-            lastMessageDiv.dataset.rawText = currentRawText; // Store accumulated raw text
+            lastMessageDiv.dataset.rawText = currentRawText; // Store accumulated raw text on parent div
 
-            // Parse the *entire* accumulated raw text and update innerHTML
-            lastMessageDiv.innerHTML = marked.parse(currentRawText);
+            // Parse the *entire* accumulated raw text and update innerHTML of the content span
+            contentSpan.innerHTML = marked.parse(currentRawText);
 
-            // --- Word Reveal: Wrap new content and start animation ---
-            const wordSpans = wrapWordsInSpans(lastMessageDiv);
+            // --- Word Reveal: Wrap new content and start animation (target the contentSpan) ---
+            const wordSpans = wrapWordsInSpans(contentSpan); // Target the span
             // Make animation faster for subsequent chunks to "catch up" visually
             const animationDelay = isNewMessage ? 30 : 10; // Faster delay for updates
             const timeoutIds = animateWords(wordSpans, animationDelay);
-            lastMessageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store new timeout IDs
+            lastMessageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store new timeout IDs on parent div
             // --- End Word Reveal ---
 
             // Scroll to bottom smoothly
@@ -1920,6 +2069,43 @@
             return timeoutIds;
         }
         // --- End Helper Functions ---
+
+        // --- Audio Playback Sequence ---
+        function playNextInQueue() {
+            if (currentAudioQueue.length > 0) {
+                const audioFilename = currentAudioQueue.shift(); // Get the next filename
+                const audioUrl = `/tts_audio/${startupTimestampStr}/${audioFilename}`;
+                console.log(`Playing next in queue: ${audioUrl}`);
+                audioOutput.src = audioUrl;
+                audioOutput.play().catch(error => {
+                    console.error(`Error playing audio file ${audioFilename}:`, error);
+                    showToast(`Error playing audio: ${error.message}`, 'error');
+                    // Try playing the next one if this fails?
+                    playNextInQueue();
+                });
+            } else {
+                isReplaying = false; // Queue is empty
+                console.log("Audio replay queue finished.");
+            }
+        }
+
+        function playAudioSequence(filenames) {
+            if (!filenames || filenames.length === 0) {
+                console.warn("No audio files provided for playback.");
+                return;
+            }
+            if (isReplaying) {
+                console.log("Already replaying, stopping previous sequence.");
+                audioOutput.pause(); // Stop current playback if any
+                currentAudioQueue = []; // Clear queue
+            }
+
+            console.log("Starting audio replay sequence for:", filenames);
+            currentAudioQueue = [...filenames]; // Copy filenames to the queue
+            isReplaying = true;
+            playNextInQueue(); // Start playing the first item
+        }
+        // --- End Audio Playback Sequence ---
 
 
         // Removed startButton event listener
@@ -2185,8 +2371,61 @@
         fetchAndPopulateModels(); // Fetch models when the script runs
         fetchAndPopulateVoices(); // Fetch voices when the script runs
         initializeSttLanguage(); // Initialize STT language input
+
+        // --- Initialize Startup Timestamp ---
+        function initializeStartupTimestamp() {
+            const timestampDataElement = document.getElementById('startup-timestamp-data');
+            if (timestampDataElement) {
+                try {
+                    startupTimestampStr = JSON.parse(timestampDataElement.textContent || '""') || '';
+                    if (!startupTimestampStr) {
+                         console.error("Startup timestamp data is empty or invalid.");
+                         showToast("Error: Missing critical configuration (timestamp). Replay may fail.", "error");
+                    } else {
+                         console.log(`Initialized startup timestamp: "${startupTimestampStr}"`);
+                    }
+                } catch (error) {
+                    console.error("Error parsing startup timestamp data:", error);
+                    showToast("Error: Failed to parse configuration (timestamp). Replay may fail.", "error");
+                }
+            } else {
+                console.error("Startup timestamp data element not found.");
+                showToast("Error: Configuration element missing (timestamp). Replay may fail.", "error");
+            }
+        }
+        initializeStartupTimestamp(); // Initialize timestamp
+        // --- End Initialize Startup Timestamp ---
+
         displayInitialSystemMessage(); // Display system message after other initial setup
         updateStatusIndicator('idle'); // Ensure indicator is hidden initially
+
+
+        // --- Event Delegation for Replay Buttons ---
+        chatMessages.addEventListener('click', (event) => {
+            const replayButton = event.target.closest('.replay-button');
+            if (replayButton) {
+                const messageDiv = replayButton.closest('.message.assistant');
+                if (messageDiv && messageDiv.dataset.audioFiles) {
+                    try {
+                        const audioFiles = JSON.parse(messageDiv.dataset.audioFiles);
+                        if (Array.isArray(audioFiles) && audioFiles.length > 0) {
+                            console.log("Replay button clicked for message with audio files:", audioFiles);
+                            playAudioSequence(audioFiles);
+                        } else {
+                            console.warn("Replay button clicked, but no valid audio files found in data attribute.");
+                            showToast("No audio available for this message.", "warning");
+                        }
+                    } catch (error) {
+                        console.error("Error parsing audio files data attribute:", error);
+                        showToast("Error retrieving audio data.", "error");
+                    }
+                } else {
+                    console.warn("Replay button clicked, but parent message or audio data attribute not found.");
+                }
+            }
+        });
+        // --- End Event Delegation ---
+
 
         // --- Options Row Toggle ---
         optionsButton.addEventListener('click', () => {

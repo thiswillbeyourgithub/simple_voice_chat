@@ -781,9 +781,9 @@
                     <!-- Original Controls Container -->
                     <div class="controls-container">
                         <!-- Options Button (Icon Only) -->
-                        <button id="options-button" title="Show/Hide Options"></button> <!-- Icon set by JS -->
+                        <button id="options-button" title="Show/Hide Options (Shift+S)"></button> <!-- Icon set by JS -->
                         <!-- Clear Chat Button (Icon Only) -->
-                        <button id="clear-chat-button" title="Clear Chat History"></button> <!-- Icon set by JS -->
+                        <button id="clear-chat-button" title="Clear Chat History (Ctrl+R)"></button> <!-- Icon set by JS -->
                         <!-- Mute Area now also contains the start button -->
                         <div id="mute-area"> <!-- Removed initial display: none; JS will handle visibility -->
                             <!-- Mute controls (initially hidden by JS) -->
@@ -1171,6 +1171,7 @@
             }
 
             // Set icons for Options and Clear Chat buttons (only if connected)
+            // Update mute button title dynamically based on state
             muteButton.title = isMuted ? "Unmute (M)" : "Mute (M)";
 
             if (isConnected) {

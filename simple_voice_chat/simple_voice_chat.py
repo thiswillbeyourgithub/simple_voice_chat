@@ -87,7 +87,7 @@ from .utils.misc import is_port_in_use
 from .utils.stt import transcribe_audio, check_stt_confidence
 
 # --- Application Version ---
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 # --- End Application Version ---
 
 

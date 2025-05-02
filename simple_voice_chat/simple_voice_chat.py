@@ -452,8 +452,8 @@ async def response(
                             logger.warning(
                                 f"TTS failed for sentence, skipping audio yield and file save: '{sentence_for_tts[:50]}...'"
                             )
-                        else:
-                             logger.debug(f"Skipping TTS for sentence as it's empty after removing <think> tags: '{sentence[:50]}...'")
+                    else: # Corresponds to 'if sentence_for_tts:'
+                         logger.debug(f"Skipping TTS for sentence as it's empty after removing <think> tags: '{sentence[:50]}...'")
 
 
         # After the loop, process any remaining text in the buffer

@@ -1950,8 +1950,8 @@
         function scrollToBottom(conditional = false) {
             const isScrolledToBottom = chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 30; // Allow small threshold
             if (!conditional || isScrolledToBottom) {
-                // Use smooth scrolling behavior
-                chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+                // Set scrollTop directly for instant scrolling, avoiding choppy 'smooth' behavior conflicts
+                chatMessages.scrollTop = chatMessages.scrollHeight;
             }
         }
 

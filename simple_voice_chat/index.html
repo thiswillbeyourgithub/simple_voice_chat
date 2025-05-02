@@ -1950,8 +1950,16 @@
         function scrollToBottom(conditional = false) {
             const isScrolledToBottom = chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 30; // Allow small threshold
             if (!conditional || isScrolledToBottom) {
-                // Set scrollTop directly for instant scrolling, avoiding choppy 'smooth' behavior conflicts
-                chatMessages.scrollTop = chatMessages.scrollHeight;
+                // Use scrollIntoView on the last message element for potentially smoother scrolling
+                const lastMessage = chatMessages.lastElementChild;
+                if (lastMessage) {
+                    // Use 'end' block alignment to ensure the bottom of the element is visible
+                    // Use 'instant' behavior to avoid conflicting animations
+                    lastMessage.scrollIntoView({ behavior: 'instant', block: 'end' });
+                } else {
+                    // Fallback if there are no messages (e.g., after clearing)
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
             }
         }
 

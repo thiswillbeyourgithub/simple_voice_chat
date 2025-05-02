@@ -2557,46 +2557,46 @@
         });
         // --- End Cost Details Toggle ---
 
-        // --- Initial Connection Setup ---
-        // Use Promise.allSettled to wait for fetches, then initiate connection
+        // --- Initial Setup & Connection ---
+
+        // Perform pre-connection cleanup immediately
+        let initialSystemMessage = null;
+        if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
+            initialSystemMessage = chatbotHistory[0];
+        }
+        chatMessages.innerHTML = ''; // Clear UI
+        chatbotHistory = []; // Clear history
+        if (initialSystemMessage) { // Restore system message
+            chatbotHistory.push(initialSystemMessage);
+            renderSystemMessageUI(initialSystemMessage.content);
+        }
+        resetCumulativeCosts(); // Reset costs
+        console.log("Initial state cleared, initiating WebRTC setup and data fetching concurrently...");
+
+        // Start WebRTC setup immediately
+        setupWebRTC();
+
+        // Fetch models and voices concurrently
         Promise.allSettled([
-            fetchAndPopulateModels(), // These return promises implicitly
+            fetchAndPopulateModels(),
             fetchAndPopulateVoices()
         ]).then((results) => {
             console.log("Model and voice fetching settled:", results);
-            // Check if fetches were successful before attempting connection
-            const fetchesOk = results.every(result => result.status === 'fulfilled');
-            if (fetchesOk) {
-                console.log("Initial data loaded successfully. Initiating WebRTC setup...");
-                // Small delay to allow UI updates from fetches to potentially complete
-                setTimeout(() => {
-                    // Perform pre-connection cleanup (similar to old start button logic)
-                    let initialSystemMessage = null;
-                    if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
-                        initialSystemMessage = chatbotHistory[0];
-                    }
-                    chatMessages.innerHTML = ''; // Clear UI
-                    chatbotHistory = []; // Clear history
-                    if (initialSystemMessage) { // Restore system message
-                        chatbotHistory.push(initialSystemMessage);
-                        renderSystemMessageUI(initialSystemMessage.content);
-                    }
-                    resetCumulativeCosts(); // Reset costs
-                    console.log("Pre-connection state cleared, initiating WebRTC setup...");
-                    setupWebRTC(); // Start the connection
-                }, 100);
-            } else {
-                console.error("Failed to load initial model/voice data. Cannot connect.");
-                showToast("Failed to load initial data. Cannot connect.", "error");
-                updateStatusIndicator('error', 'Initialization failed');
-            }
+            // Check if fetches failed and log/notify if necessary
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    const type = index === 0 ? 'models' : 'voices';
+                    console.error(`Failed to fetch/populate ${type}:`, result.reason);
+                    // Toast is already shown within the fetch functions on error
+                }
+            });
         }).catch(err => {
              // This catch is for errors in Promise.allSettled itself (unlikely)
              console.error("Error during initial data fetch settlement:", err);
              showToast("Critical error during initialization.", "error");
-             updateStatusIndicator('error', 'Initialization error');
+             // Status indicator might already show connection errors if WebRTC failed
         });
-        // --- End Initial Connection Setup ---
+        // --- End Initial Setup & Connection ---
 
 
         // Voice input change handler (triggered on blur or selecting from datalist)

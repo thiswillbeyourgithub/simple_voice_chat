@@ -806,7 +806,7 @@
                  <!-- Model Selection Input with Datalist -->
                  <div class="select-container"> <!-- Reusing container for layout -->
                     <label for="model-input" class="visually-hidden">Select Model:</label>
-                    <input type="text" id="model-input" list="model-suggestions" class="styled-select" placeholder="Type to search models..."> <!-- Reusing styled-select class for now -->
+                    <input type="text" id="model-input" list="model-suggestions" class="styled-select" placeholder="Type to search models..." title="Select the Large Language Model (LLM) for conversation."> <!-- Reusing styled-select class for now -->
                     <datalist id="model-suggestions">
                         <!-- Options will be populated by JS -->
                     </datalist>
@@ -815,7 +815,7 @@
                 <!-- Voice Selection Input with Datalist -->
                 <div class="select-container"> <!-- Reusing container for layout -->
                    <label for="voice-input" class="visually-hidden">Select Voice:</label>
-                   <input type="text" id="voice-input" list="voice-suggestions" class="styled-select" placeholder="Type to search voices..."> <!-- Reusing styled-select class -->
+                   <input type="text" id="voice-input" list="voice-suggestions" class="styled-select" placeholder="Type to search voices..." title="Select the Text-to-Speech (TTS) voice for the AI assistant."> <!-- Reusing styled-select class -->
                    <datalist id="voice-suggestions">
                        <!-- Options will be populated by JS -->
                    </datalist>
@@ -824,13 +824,13 @@
                <!-- STT Language Input -->
                <div class="select-container"> <!-- Reusing container for layout -->
                    <label for="stt-language-input" class="visually-hidden">STT Language:</label>
-                   <input type="text" id="stt-language-input" class="styled-select" placeholder="STT Language (e.g., en)"> <!-- Reusing styled-select class -->
+                   <input type="text" id="stt-language-input" class="styled-select" placeholder="STT Language (e.g., en)" title="Specify the language for Speech-to-Text (STT). Leave blank for auto-detection."> <!-- Reusing styled-select class -->
                </div>
                <!-- End STT Language Input -->
                <!-- TTS Speed Input -->
                <div class="select-container"> <!-- Reusing container for layout -->
                    <label for="tts-speed-input" class="visually-hidden">TTS Speed:</label>
-                   <input type="number" id="tts-speed-input" class="styled-select" placeholder="TTS Speed (0.1-4.0)" min="0.1" max="4.0" step="0.1"> <!-- Reusing styled-select class -->
+                   <input type="number" id="tts-speed-input" class="styled-select" placeholder="TTS Speed (0.1-4.0)" min="0.1" max="4.0" step="0.1" title="Adjust the Text-to-Speech (TTS) speed (0.1 to 4.0). 1.0 is normal speed."> <!-- Reusing styled-select class -->
                </div>
                <!-- End TTS Speed Input -->
                <!-- Debug Button Removed -->

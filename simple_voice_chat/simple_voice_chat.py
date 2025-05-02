@@ -1937,7 +1937,7 @@ def main() -> int:
                 # VAD model's internal speech probability threshold. Higher values make it less sensitive to noise. Default: 0.5
                 threshold=0.6, # Increased from 0.5 to reduce sensitivity
                 # Minimum duration of speech to be considered valid (milliseconds). Higher values ignore short sounds like coughs. Default: 250
-                min_speech_duration_ms=400,  # Kept at 400
+                min_speech_duration_ms=800,  # Increased from 400 to reduce interruptions from short sounds/noise
                 # Minimum duration of silence after speech to trigger pause (milliseconds). Higher values allow longer pauses. Default: 100
                 min_silence_duration_ms=3500,  # Increased from 2500 to allow longer pauses
             ),

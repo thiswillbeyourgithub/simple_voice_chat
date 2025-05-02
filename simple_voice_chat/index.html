@@ -723,6 +723,23 @@
         }
         /* End System Message Divider */
 
+        /* Style for 'Thinking' blockquotes */
+        .message.assistant blockquote {
+            border-left: 3px solid #888; /* Different border color */
+            color: #aaa; /* Dimmer text color */
+            background-color: #2a2a2a; /* Slightly different background */
+            padding: 0.5em 1em;
+            margin-left: 0;
+            margin-right: 0;
+        }
+        .message.assistant blockquote p { /* Ensure paragraphs inside blockquote have no extra margin */
+             margin: 0;
+        }
+        .message.assistant blockquote em { /* Style the 'Thinking:' part */
+            font-weight: bold;
+            opacity: 0.8;
+        }
+
     </style>
 </head>
 
@@ -1786,7 +1803,9 @@
 
             // Use marked.parse() and set innerHTML for the main content
             const contentSpan = document.createElement('span'); // Wrap content
-            contentSpan.innerHTML = marked.parse(content);
+            // Preprocess content to handle <think> tags before Markdown parsing
+            const processedContent = preprocessThinkTags(content);
+            contentSpan.innerHTML = marked.parse(processedContent);
             messageDiv.appendChild(contentSpan);
 
             // --- Add Replay Button for Assistant Messages ---
@@ -1900,8 +1919,11 @@
             const currentRawText = (lastMessageDiv.dataset.rawText || '') + chunkContent;
             lastMessageDiv.dataset.rawText = currentRawText; // Store accumulated raw text on parent div
 
-            // Parse the *entire* accumulated raw text and update innerHTML of the content span
-            contentSpan.innerHTML = marked.parse(currentRawText);
+            // Preprocess the accumulated text for <think> tags before Markdown parsing
+            const processedText = preprocessThinkTags(currentRawText);
+            // Parse the *entire* processed text and update innerHTML of the content span
+            contentSpan.innerHTML = marked.parse(processedText);
+
 
             // --- Word Reveal: Wrap new content and start animation (target the contentSpan) ---
             const wordSpans = wrapWordsInSpans(contentSpan); // Target the span

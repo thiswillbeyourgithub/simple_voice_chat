@@ -1794,6 +1794,15 @@
             }
         }
 
+        // --- Helper function to preprocess <think> tags ---
+        function preprocessThinkTags(text) {
+            // Replace <think>...</think> with Markdown blockquote
+            // Using a non-greedy match for the content inside <think>
+            // Using 'gs' flags: g=global, s=dotall (match newlines)
+            return text.replace(/<think>(.*?)<\/think>/gs, '\n> *Thinking: $1*\n');
+        }
+        // --- End Helper function ---
+
 
         // Function to add a complete message (user or initial assistant error)
         function addMessage(role, content, isComplete = true) {

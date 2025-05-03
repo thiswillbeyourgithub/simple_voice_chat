@@ -16,6 +16,7 @@ import tempfile
 import shutil
 import uuid
 import asyncio
+import re
 from pathlib import Path
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
@@ -325,7 +326,8 @@ async def response(
     # --- Streaming Chat Completion & Concurrent TTS ---
     llm_response_stream = None
     full_response_text = ""
-    sentence_buffer = ""
+    sentence_buffer = "" # Buffer for accumulating raw text including tags
+    last_tts_processed_pos = 0 # Tracks the index in the *cleaned* buffer processed for TTS
     final_usage_info = None
     llm_error_occurred = False
     first_chunk_yielded = False # Track if we yielded the first chunk for UI
@@ -398,100 +400,92 @@ async def response(
                     f"Captured usage info from LLM chunk: {final_usage_info}"
                 )
 
-            # Process buffer when a newline is found (simple sentence splitting)
-            # Check delta_content again to avoid processing non-content chunks
-            if delta_content:
-                while "\n" in sentence_buffer:
-                    sentence, rest = sentence_buffer.split("\n", 1)
-                    sentence = sentence.strip()  # Clean sentence
-                    sentence_buffer = rest  # Keep the remainder
+            # --- Process buffer for TTS ---
+            # Clean the *entire* current buffer first, then process new parts ending in newline
+            if delta_content: # Only process if there was new content
+                buffer_cleaned_for_tts = re.sub(r"<think>.*?</think>", "", sentence_buffer, flags=re.DOTALL)
+                new_cleaned_text = buffer_cleaned_for_tts[last_tts_processed_pos:]
 
-                    if sentence:
-                        # Count characters for TTS cost calculation
-                        total_tts_chars += len(sentence)
-                        logger.debug(
-                            f"Generating TTS for sentence: '{sentence[:50]}...' ({len(sentence)} chars)"
-                        )
-                        # Pass TTS config values from args, module-level state/clients, and the temp dir
-                        audio_file_path: Optional[Path] = await generate_tts_for_sentence(
-                            sentence,
-                            tts_client,  # Initialized client
-                            args.tts_model,  # From args (needs access)
-                            selected_voice,  # Current selected voice (module-level)
-                            current_tts_speed,  # Use global state variable
-                            TTS_ACRONYM_PRESERVE_SET,  # Derived from args (module-level)
-                            TTS_AUDIO_DIR, # Pass the temp directory
-                        )
-                        # generate_tts_for_sentence now returns the filename (str) or None
-                        if audio_file_path: # This is now the filename string
-                            tts_audio_file_paths.append(audio_file_path) # Store the filename string directly
-                            full_audio_file_path = TTS_AUDIO_DIR / audio_file_path # Reconstruct full path for reading
-                            logger.debug(f"TTS audio saved to: {full_audio_file_path}")
-                            # Read audio from file for streaming playback
-                            try:
-                                # Run synchronous pydub decoding in a thread
-                                audio_segment = await asyncio.to_thread(
-                                    AudioSegment.from_file, full_audio_file_path, format="mp3" # Use full path here
-                                )
-                                sample_rate = audio_segment.frame_rate
-                                samples = np.array(audio_segment.get_array_of_samples()).astype(
-                                    np.int16
-                                )
-                                logger.debug(
-                                    f"Yielding audio chunk from file '{audio_file_path}' for sentence: '{sentence[:50]}...'" # Log filename
-                                )
-                                yield (sample_rate, samples) # Yield decoded audio for playback
-                            except Exception as read_e:
-                                logger.error(f"Failed to read/decode TTS audio file {full_audio_file_path}: {read_e}") # Log full path on error
-                        else:
-                            logger.warning(
-                                f"TTS failed for sentence, skipping audio yield and file save: '{sentence[:50]}...'"
+                # Find the last newline in the newly added cleaned text
+                split_pos = new_cleaned_text.rfind('\n')
+
+                if split_pos != -1:
+                    # Extract the chunk ready for TTS (up to and including the last newline)
+                    tts_ready_chunk = new_cleaned_text[:split_pos + 1]
+
+                    # Split this chunk into sentences
+                    sentences_for_tts = tts_ready_chunk.split('\n')
+
+                    for sentence_for_tts in sentences_for_tts:
+                        sentence_for_tts = sentence_for_tts.strip()
+                        if sentence_for_tts:
+                            # Count characters, log, call generate_tts_for_sentence, handle audio path...
+                            total_tts_chars += len(sentence_for_tts)
+                            logger.debug(f"Generating TTS for sentence (cleaned): '{sentence_for_tts[:50]}...' ({len(sentence_for_tts)} chars)")
+                            audio_file_path: Optional[str] = await generate_tts_for_sentence(
+                                sentence_for_tts,
+                                tts_client,
+                                args.tts_model,
+                                selected_voice,
+                                current_tts_speed,
+                                TTS_ACRONYM_PRESERVE_SET,
+                                TTS_AUDIO_DIR,
                             )
+                            if audio_file_path:
+                                tts_audio_file_paths.append(audio_file_path)
+                                full_audio_file_path = TTS_AUDIO_DIR / audio_file_path
+                                logger.debug(f"TTS audio saved to: {full_audio_file_path}")
+                                try:
+                                    audio_segment = await asyncio.to_thread(
+                                        AudioSegment.from_file, full_audio_file_path, format="mp3"
+                                    )
+                                    sample_rate = audio_segment.frame_rate
+                                    samples = np.array(audio_segment.get_array_of_samples()).astype(np.int16)
+                                    logger.debug(f"Yielding audio chunk from file '{audio_file_path}' for sentence: '{sentence_for_tts[:50]}...'")
+                                    yield (sample_rate, samples)
+                                except Exception as read_e:
+                                    logger.error(f"Failed to read/decode TTS audio file {full_audio_file_path}: {read_e}")
+                            else:
+                                logger.warning(f"TTS failed for sentence, skipping audio yield and file save: '{sentence_for_tts[:50]}...'")
 
-        # After the loop, process any remaining text in the buffer
-        remaining_sentence = sentence_buffer.strip()
-        if remaining_sentence:
-            # Count characters for TTS cost calculation
-            total_tts_chars += len(remaining_sentence)
-            # Yield audio for the remaining buffer immediately
-            logger.debug(
-                f"Generating TTS for remaining buffer: '{remaining_sentence[:50]}...' ({len(remaining_sentence)} chars)"
+                    # Update the position marker for the cleaned buffer
+                    last_tts_processed_pos += len(tts_ready_chunk)
+
+
+        # After the loop, process any remaining text in the cleaned buffer
+        buffer_cleaned_for_tts = re.sub(r"<think>.*?</think>", "", sentence_buffer, flags=re.DOTALL)
+        remaining_cleaned_text = buffer_cleaned_for_tts[last_tts_processed_pos:].strip()
+
+        if remaining_cleaned_text:
+            # Process the final remaining part for TTS
+            total_tts_chars += len(remaining_cleaned_text)
+            logger.debug(f"Generating TTS for remaining buffer (cleaned): '{remaining_cleaned_text[:50]}...' ({len(remaining_cleaned_text)} chars)")
+            audio_file_path: Optional[str] = await generate_tts_for_sentence(
+                remaining_cleaned_text,
+                tts_client,
+                args.tts_model,
+                selected_voice,
+                current_tts_speed,
+                TTS_ACRONYM_PRESERVE_SET,
+                TTS_AUDIO_DIR,
             )
-            # Pass TTS config values from args, module-level state/clients, and the temp dir
-            audio_file_path: Optional[Path] = await generate_tts_for_sentence(
-                remaining_sentence,
-                tts_client,  # Initialized client
-                args.tts_model,  # From args (needs access)
-                selected_voice,  # Current selected voice (module-level)
-                current_tts_speed,  # Use global state variable
-                TTS_ACRONYM_PRESERVE_SET,  # Derived from args (module-level)
-                TTS_AUDIO_DIR, # Pass the temp directory
-            )
-             # generate_tts_for_sentence now returns the filename (str) or None
-            if audio_file_path: # This is now the filename string
-                tts_audio_file_paths.append(audio_file_path) # Store the filename string directly
-                full_audio_file_path = TTS_AUDIO_DIR / audio_file_path # Reconstruct full path for reading
+            if audio_file_path:
+                tts_audio_file_paths.append(audio_file_path)
+                full_audio_file_path = TTS_AUDIO_DIR / audio_file_path
                 logger.debug(f"TTS audio saved to: {full_audio_file_path}")
-                # Read audio from file for streaming playback
                 try:
-                    # Run synchronous pydub decoding in a thread
                     audio_segment = await asyncio.to_thread(
-                        AudioSegment.from_file, full_audio_file_path, format="mp3" # Use full path here
+                        AudioSegment.from_file, full_audio_file_path, format="mp3"
                     )
                     sample_rate = audio_segment.frame_rate
-                    samples = np.array(audio_segment.get_array_of_samples()).astype(
-                        np.int16
-                    )
-                    logger.debug(
-                        f"Yielding audio chunk from file '{audio_file_path}' for remaining buffer: '{remaining_sentence[:50]}...'" # Log filename
-                    )
-                    yield (sample_rate, samples) # Yield decoded audio for playback
+                    samples = np.array(audio_segment.get_array_of_samples()).astype(np.int16)
+                    logger.debug(f"Yielding audio chunk from file '{audio_file_path}' for remaining buffer: '{remaining_cleaned_text[:50]}...'")
+                    yield (sample_rate, samples)
                 except Exception as read_e:
-                    logger.error(f"Failed to read/decode TTS audio file {full_audio_file_path}: {read_e}") # Log full path on error
+                    logger.error(f"Failed to read/decode TTS audio file {full_audio_file_path}: {read_e}")
             else:
-                logger.warning(
-                                f"TTS failed for sentence, skipping audio yield and file save: '{sentence[:50]}...'"
-                            )
+                logger.warning(f"TTS failed for remaining buffer, skipping audio yield and file save: '{remaining_cleaned_text[:50]}...'")
+
 
         llm_end_time = time.time()
         logger.info(
@@ -1943,7 +1937,7 @@ def main() -> int:
                 # VAD model's internal speech probability threshold. Higher values make it less sensitive to noise. Default: 0.5
                 threshold=0.6, # Increased from 0.5 to reduce sensitivity
                 # Minimum duration of speech to be considered valid (milliseconds). Higher values ignore short sounds like coughs. Default: 250
-                min_speech_duration_ms=400,  # Kept at 400
+                min_speech_duration_ms=800,  # Increased from 400 to reduce interruptions from short sounds/noise
                 # Minimum duration of silence after speech to trigger pause (milliseconds). Higher values allow longer pauses. Default: 100
                 min_silence_duration_ms=3500,  # Increased from 2500 to allow longer pauses
             ),

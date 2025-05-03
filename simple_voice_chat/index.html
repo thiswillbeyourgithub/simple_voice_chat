@@ -668,9 +668,9 @@
             position: absolute;
             top: 50%; /* Center vertically */
             transform: translateY(-50%); /* Adjust for button height */
-            right: -35px; /* Position outside the message bubble */
-            width: 28px;
-            height: 28px;
+            left: -45px; /* Position outside (left) the message bubble */
+            width: 36px; /* Increased size */
+            height: 36px; /* Increased size */
             background-color: #333; /* Dark grey background */
             color: #ccc; /* Light grey icon color */
             border: 1px solid #444;
@@ -705,8 +705,8 @@
         }
 
         .replay-button svg {
-            width: 16px; /* Adjust icon size */
-            height: 16px;
+            width: 20px; /* Increased icon size */
+            height: 20px; /* Increased icon size */
         }
         /* End Replay Button Styles */
 
@@ -722,6 +722,23 @@
             margin-right: auto;
         }
         /* End System Message Divider */
+
+        /* Style for 'Thinking' blockquotes */
+        .message.assistant blockquote {
+            border-left: 3px solid #888; /* Different border color */
+            color: #aaa; /* Dimmer text color */
+            background-color: #2a2a2a; /* Slightly different background */
+            padding: 0.5em 1em;
+            margin-left: 0;
+            margin-right: 0;
+        }
+        .message.assistant blockquote p { /* Ensure paragraphs inside blockquote have no extra margin */
+             margin: 0;
+        }
+        .message.assistant blockquote em { /* Style the 'Thinking:' part */
+            font-weight: bold;
+            opacity: 0.8;
+        }
 
     </style>
 </head>
@@ -806,7 +823,7 @@
                  <!-- Model Selection Input with Datalist -->
                  <div class="select-container"> <!-- Reusing container for layout -->
                     <label for="model-input" class="visually-hidden">Select Model:</label>
-                    <input type="text" id="model-input" list="model-suggestions" class="styled-select" placeholder="Type to search models..."> <!-- Reusing styled-select class for now -->
+                    <input type="text" id="model-input" list="model-suggestions" class="styled-select" placeholder="Type to search models..." title="Select the Large Language Model (LLM) for conversation."> <!-- Reusing styled-select class for now -->
                     <datalist id="model-suggestions">
                         <!-- Options will be populated by JS -->
                     </datalist>
@@ -815,7 +832,7 @@
                 <!-- Voice Selection Input with Datalist -->
                 <div class="select-container"> <!-- Reusing container for layout -->
                    <label for="voice-input" class="visually-hidden">Select Voice:</label>
-                   <input type="text" id="voice-input" list="voice-suggestions" class="styled-select" placeholder="Type to search voices..."> <!-- Reusing styled-select class -->
+                   <input type="text" id="voice-input" list="voice-suggestions" class="styled-select" placeholder="Type to search voices..." title="Select the Text-to-Speech (TTS) voice for the AI assistant."> <!-- Reusing styled-select class -->
                    <datalist id="voice-suggestions">
                        <!-- Options will be populated by JS -->
                    </datalist>
@@ -824,13 +841,13 @@
                <!-- STT Language Input -->
                <div class="select-container"> <!-- Reusing container for layout -->
                    <label for="stt-language-input" class="visually-hidden">STT Language:</label>
-                   <input type="text" id="stt-language-input" class="styled-select" placeholder="STT Language (e.g., en)"> <!-- Reusing styled-select class -->
+                   <input type="text" id="stt-language-input" class="styled-select" placeholder="STT Language (e.g., en)" title="Specify the language for Speech-to-Text (STT). Leave blank for auto-detection."> <!-- Reusing styled-select class -->
                </div>
                <!-- End STT Language Input -->
                <!-- TTS Speed Input -->
                <div class="select-container"> <!-- Reusing container for layout -->
                    <label for="tts-speed-input" class="visually-hidden">TTS Speed:</label>
-                   <input type="number" id="tts-speed-input" class="styled-select" placeholder="TTS Speed (0.1-4.0)" min="0.1" max="4.0" step="0.1"> <!-- Reusing styled-select class -->
+                   <input type="number" id="tts-speed-input" class="styled-select" placeholder="TTS Speed (0.1-4.0)" min="0.1" max="4.0" step="0.1" title="Adjust the Text-to-Speech (TTS) speed (0.1 to 4.0). 1.0 is normal speed."> <!-- Reusing styled-select class -->
                </div>
                <!-- End TTS Speed Input -->
                <!-- Debug Button Removed -->
@@ -1777,6 +1794,15 @@
             }
         }
 
+        // --- Helper function to preprocess <think> tags ---
+        function preprocessThinkTags(text) {
+            // Replace <think>...</think> with Markdown blockquote
+            // Using a non-greedy match for the content inside <think>
+            // Using 'gs' flags: g=global, s=dotall (match newlines)
+            return text.replace(/<think>(.*?)<\/think>/gs, '\n> *Thinking: $1*\n');
+        }
+        // --- End Helper function ---
+
 
         // Function to add a complete message (user or initial assistant error)
         function addMessage(role, content, isComplete = true) {
@@ -1786,7 +1812,9 @@
 
             // Use marked.parse() and set innerHTML for the main content
             const contentSpan = document.createElement('span'); // Wrap content
-            contentSpan.innerHTML = marked.parse(content);
+            // Preprocess content to handle <think> tags before Markdown parsing
+            const processedContent = preprocessThinkTags(content);
+            contentSpan.innerHTML = marked.parse(processedContent);
             messageDiv.appendChild(contentSpan);
 
             // --- Add Replay Button for Assistant Messages ---
@@ -1900,8 +1928,11 @@
             const currentRawText = (lastMessageDiv.dataset.rawText || '') + chunkContent;
             lastMessageDiv.dataset.rawText = currentRawText; // Store accumulated raw text on parent div
 
-            // Parse the *entire* accumulated raw text and update innerHTML of the content span
-            contentSpan.innerHTML = marked.parse(currentRawText);
+            // Preprocess the accumulated text for <think> tags before Markdown parsing
+            const processedText = preprocessThinkTags(currentRawText);
+            // Parse the *entire* processed text and update innerHTML of the content span
+            contentSpan.innerHTML = marked.parse(processedText);
+
 
             // --- Word Reveal: Wrap new content and start animation (target the contentSpan) ---
             const wordSpans = wrapWordsInSpans(contentSpan); // Target the span
@@ -1919,8 +1950,16 @@
         function scrollToBottom(conditional = false) {
             const isScrolledToBottom = chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 30; // Allow small threshold
             if (!conditional || isScrolledToBottom) {
-                // Use smooth scrolling behavior
-                chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+                // Use scrollIntoView on the last message element for potentially smoother scrolling
+                const lastMessage = chatMessages.lastElementChild;
+                if (lastMessage) {
+                    // Use 'end' block alignment to ensure the bottom of the element is visible
+                    // Use 'instant' behavior to avoid conflicting animations
+                    lastMessage.scrollIntoView({ behavior: 'instant', block: 'end' });
+                } else {
+                    // Fallback if there are no messages (e.g., after clearing)
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
             }
         }
 
@@ -2518,46 +2557,46 @@
         });
         // --- End Cost Details Toggle ---
 
-        // --- Initial Connection Setup ---
-        // Use Promise.allSettled to wait for fetches, then initiate connection
+        // --- Initial Setup & Connection ---
+
+        // Perform pre-connection cleanup immediately
+        let initialSystemMessage = null;
+        if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
+            initialSystemMessage = chatbotHistory[0];
+        }
+        chatMessages.innerHTML = ''; // Clear UI
+        chatbotHistory = []; // Clear history
+        if (initialSystemMessage) { // Restore system message
+            chatbotHistory.push(initialSystemMessage);
+            renderSystemMessageUI(initialSystemMessage.content);
+        }
+        resetCumulativeCosts(); // Reset costs
+        console.log("Initial state cleared, initiating WebRTC setup and data fetching concurrently...");
+
+        // Start WebRTC setup immediately
+        setupWebRTC();
+
+        // Fetch models and voices concurrently
         Promise.allSettled([
-            fetchAndPopulateModels(), // These return promises implicitly
+            fetchAndPopulateModels(),
             fetchAndPopulateVoices()
         ]).then((results) => {
             console.log("Model and voice fetching settled:", results);
-            // Check if fetches were successful before attempting connection
-            const fetchesOk = results.every(result => result.status === 'fulfilled');
-            if (fetchesOk) {
-                console.log("Initial data loaded successfully. Initiating WebRTC setup...");
-                // Small delay to allow UI updates from fetches to potentially complete
-                setTimeout(() => {
-                    // Perform pre-connection cleanup (similar to old start button logic)
-                    let initialSystemMessage = null;
-                    if (chatbotHistory.length > 0 && chatbotHistory[0].role === 'system') {
-                        initialSystemMessage = chatbotHistory[0];
-                    }
-                    chatMessages.innerHTML = ''; // Clear UI
-                    chatbotHistory = []; // Clear history
-                    if (initialSystemMessage) { // Restore system message
-                        chatbotHistory.push(initialSystemMessage);
-                        renderSystemMessageUI(initialSystemMessage.content);
-                    }
-                    resetCumulativeCosts(); // Reset costs
-                    console.log("Pre-connection state cleared, initiating WebRTC setup...");
-                    setupWebRTC(); // Start the connection
-                }, 100);
-            } else {
-                console.error("Failed to load initial model/voice data. Cannot connect.");
-                showToast("Failed to load initial data. Cannot connect.", "error");
-                updateStatusIndicator('error', 'Initialization failed');
-            }
+            // Check if fetches failed and log/notify if necessary
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    const type = index === 0 ? 'models' : 'voices';
+                    console.error(`Failed to fetch/populate ${type}:`, result.reason);
+                    // Toast is already shown within the fetch functions on error
+                }
+            });
         }).catch(err => {
              // This catch is for errors in Promise.allSettled itself (unlikely)
              console.error("Error during initial data fetch settlement:", err);
              showToast("Critical error during initialization.", "error");
-             updateStatusIndicator('error', 'Initialization error');
+             // Status indicator might already show connection errors if WebRTC failed
         });
-        // --- End Initial Connection Setup ---
+        // --- End Initial Setup & Connection ---
 
 
         // Voice input change handler (triggered on blur or selecting from datalist)

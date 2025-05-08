@@ -1137,24 +1137,37 @@
             // Update Mute Button Icon/State if connected
             if (isConnected) {
                 updateStatusIndicator('idle'); // Hide connecting/disconnected status when connected
-                muteButton.innerHTML = ''; // Clear previous content
+
+                // Ensure the audio indicator span exists and is the first child
+                let indicatorSpan = muteButton.querySelector('.audio-indicator');
+                if (!indicatorSpan) {
+                    indicatorSpan = document.createElement('span');
+                    indicatorSpan.className = 'audio-indicator';
+                    // Add it as the first child
+                    muteButton.insertBefore(indicatorSpan, muteButton.firstChild);
+                } else {
+                    // If it exists but is not the first child, move it to be the first
+                    if (muteButton.firstChild !== indicatorSpan) {
+                        muteButton.insertBefore(indicatorSpan, muteButton.firstChild);
+                    }
+                }
+
+                // Remove any existing mic icon (elements with class 'mute-toggle')
+                const existingMicIcons = muteButton.querySelectorAll('.mute-toggle');
+                existingMicIcons.forEach(icon => icon.remove());
+
+                // Create and add new mic icon (will be appended after the indicator)
                 const micIcon = document.createElement('div');
                 micIcon.className = 'mute-toggle';
                 micIcon.innerHTML = isMuted ? micMutedIconSVG : micIconSVG;
-                // Ensure the indicator span exists before appending the icon
-                const indicatorSpan = muteButton.querySelector('.audio-indicator');
-                if (indicatorSpan) {
-                    muteButton.insertBefore(micIcon, indicatorSpan.nextSibling); // Insert icon after indicator
-                } else {
-                    muteButton.appendChild(micIcon); // Fallback if indicator not found
-                }
+                muteButton.appendChild(micIcon);
+
                 // Add/remove 'muted' class to the button itself for CSS styling of indicator
                 if (isMuted) {
                     muteButton.classList.add('muted');
                 } else {
                     muteButton.classList.remove('muted');
                 }
-
 
             } else { // Initial state, connecting, or disconnected/failed
                 // Hide mute button if not connected

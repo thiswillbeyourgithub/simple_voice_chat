@@ -1349,10 +1349,16 @@
                  console.warn("RTC Configuration is missing. Using default (may not work with TURN).");
             }
             try {
+                // Get the correct RTCPeerConnection object, checking for vendor prefixes
+                const RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+
+                if (!RTCPeerConnection) {
+                    throw new ReferenceError("RTCPeerConnection is not supported by this browser/webview.");
+                }
                 peerConnection = new RTCPeerConnection(config);
             } catch (error) {
                 console.error("Failed to create RTCPeerConnection:", error);
-                showToast("Failed to initialize connection.", "error");
+                showToast("Failed to initialize connection. WebRTC might not be supported.", "error");
                 updateButtonState(); // Reset button state
                 updateStatusIndicator('error', 'Connection Init Failed'); // Update status on error
                 return; // Exit the function if connection creation fails

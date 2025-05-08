@@ -47,7 +47,6 @@ setuptools.setup(
         "pywebview>=5.4",
         "PyQt6>=6.9.0",
         "PyQt6-WebEngine>=6.9.0",
-        "pygobject==3.48.2",  # seems to help with running the UI, otherwise I would get 'ModuleNotFoundError: No module named 'gi'
         "psutil>=7.0.0",
         "numpy>=2.2.5",
         "fastapi>=0.115.12",

@@ -715,10 +715,10 @@
         .replay-button:hover {
             background-color: #444; /* Slightly lighter on hover */
             color: #fff;
-            /* Override general button hover */
-            transform: none;
-            box-shadow: none;
-            border-width: 1px;
+            /* Override general button hover effects like scale, but maintain vertical centering */
+            transform: translateY(-50%); /* Maintain vertical centering */
+            box-shadow: none; /* Remove general button hover shadow */
+            border-width: 1px; /* Ensure border width remains consistent */
         }
 
         .replay-button svg {

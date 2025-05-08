@@ -1614,7 +1614,7 @@ def main() -> int:
             level="DEBUG", # Always log DEBUG level to file
             format=log_format_file, # Use non-colored format
             rotation="10 MB",  # Rotate log file when it reaches 10 MB
-            retention="5 files",  # Keep the last 5 log files
+            retention=5,  # Keep the last 5 log files
             encoding="utf-8",
             enqueue=True, # Recommended for performance
             backtrace=True, # Always include backtrace in file logs

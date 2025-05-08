@@ -86,4 +86,3 @@ setuptools.setup(
         "Source": "https://github.com/thiswillbeyourgithub/simple_voice_chat",
     },
 )
-

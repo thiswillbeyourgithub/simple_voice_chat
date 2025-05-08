@@ -901,6 +901,13 @@
         let cumulativeTtsCost = 0.0; // Added: TTS Cost
         let cumulativeTotalCost = 0.0; // Total
 
+        // --- UI Zoom State ---
+        let currentZoomLevel = 1.0; // Initial zoom level (100%)
+        const zoomStep = 0.1; // How much to zoom in/out per scroll step
+        const minZoom = 0.5;  // Minimum zoom level (50%)
+        const maxZoom = 2.0;  // Maximum zoom level (200%)
+        const zoomLocalStorageKey = 'uiZoomLevel';
+
         // --- Model Fuzzy Search State ---
         let modelSearchQuery = '';
         let modelSearchTimeout = null;
@@ -912,6 +919,29 @@
         let voiceSearchTimeout = null;
         let allVoiceOptions = []; // To store { value: '...', text: '...' }
         // --- End Voice Fuzzy Search State ---
+
+
+        // --- UI Zoom Functions ---
+        function applyZoom(level) {
+            document.body.style.zoom = level;
+            console.debug(`Zoom level set to: ${level}`);
+        }
+
+        function loadZoomLevel() {
+            const savedZoom = localStorage.getItem(zoomLocalStorageKey);
+            if (savedZoom) {
+                const newZoom = parseFloat(savedZoom);
+                if (!isNaN(newZoom) && newZoom >= minZoom && newZoom <= maxZoom) {
+                    currentZoomLevel = newZoom;
+                }
+            }
+            applyZoom(currentZoomLevel);
+        }
+
+        function saveZoomLevel() {
+            localStorage.setItem(zoomLocalStorageKey, currentZoomLevel.toString());
+        }
+        // --- End UI Zoom Functions ---
 
         const audioOutput = document.getElementById('audio-output'); // For WebRTC stream
         const ttsPlaybackAudio = document.getElementById('tts-playback-audio'); // For TTS file playback
@@ -2569,6 +2599,7 @@
         initializeStartupTimestamp(); // Initialize timestamp
         // --- End Initialize Startup Timestamp ---
 
+        loadZoomLevel(); // Load and apply saved zoom level on startup
         displayInitialSystemMessage(); // Display system message after other initial setup
         updateStatusIndicator('idle'); // Ensure indicator is hidden initially
 
@@ -3057,6 +3088,30 @@
             }
             // Removed Space bar shortcut for Start button
         });
+
+        // --- Ctrl + Scroll Zoom Logic ---
+        document.addEventListener('wheel', (event) => {
+            if (event.ctrlKey) {
+                event.preventDefault(); // Prevent default browser zoom/scroll
+
+                // Determine zoom direction
+                const delta = event.deltaY > 0 ? -zoomStep : zoomStep; // Negative deltaY for scroll down (zoom out)
+
+                // Calculate new zoom level
+                let newZoomLevel = currentZoomLevel + delta;
+
+                // Clamp zoom level within min/max bounds
+                newZoomLevel = Math.max(minZoom, Math.min(maxZoom, newZoomLevel));
+                newZoomLevel = parseFloat(newZoomLevel.toFixed(2)); // Avoid floating point inaccuracies
+
+                if (newZoomLevel !== currentZoomLevel) {
+                    currentZoomLevel = newZoomLevel;
+                    applyZoom(currentZoomLevel);
+                    saveZoomLevel(); // Save the new zoom level
+                }
+            }
+        }, { passive: false }); // `passive: false` is needed to allow preventDefault
+        // --- End Ctrl + Scroll Zoom Logic ---
 
         // --- Removed Custom Context Menu Logic ---
 

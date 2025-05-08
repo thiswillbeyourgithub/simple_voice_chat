@@ -249,33 +249,48 @@
         }
         /* End Body Scrollbar Styles */
 
+        .message-row {
+            display: flex;
+            margin-bottom: 20px; /* Moved from .message */
+            position: relative; /* For potential future use, not strictly needed for this change */
+        }
+
+        .message-row.user-row {
+            justify-content: flex-end;
+        }
+
+        .message-row.assistant-row {
+            justify-content: flex-start;
+        }
+
         .message {
-            margin-bottom: 20px;
+            /* margin-bottom: 20px; */ /* Removed, now on .message-row */
             padding: 12px 16px;
             border-radius: 8px;
             font-size: 16px;
             line-height: 1.5;
             max-width: 70%;
-            clear: both;
+            /* clear: both; */ /* Removed, flex handles layout */
+            position: relative; /* Keep for replay button positioning */
         }
 
         .message.user {
             background-color: #2c2c2c;
-            float: right;
+            /* float: right; */ /* Removed */
             border-bottom-right-radius: 2px;
             border: 1px solid #404040;
         }
 
         .message.assistant {
             background-color: #262626;
-            float: left;
+            /* float: left; */ /* Removed */
             border-bottom-left-radius: 2px;
             border: 1px solid #333;
         }
 
         .message.system { /* Style for system messages */
             background-color: #202020; /* Slightly different background */
-            float: left; /* Align like assistant */
+            /* float: left; */ /* Removed, will be wrapped in assistant-row or its own row type if needed */
             border-bottom-left-radius: 2px;
             border: 1px solid #383838; /* Slightly different border */
             font-style: italic; /* Italicize system messages */
@@ -660,8 +675,8 @@
         /* End Word Reveal Styles */
 
         /* Replay Button Styles */
-        .message {
-            position: relative; /* Needed for absolute positioning of the button */
+        .message.assistant { /* Ensure .message.assistant still has position relative for the button */
+            position: relative;
         }
 
         .replay-button {
@@ -692,9 +707,9 @@
             font-size: 14px; /* Adjust icon size if needed */
         }
 
-        .message.assistant:hover .replay-button {
-            opacity: 1; /* Show on parent hover */
-            visibility: visible; /* Make interactive on parent hover */
+        .message-row.assistant-row:hover .replay-button { /* Changed selector */
+            opacity: 1; /* Show on parent row hover */
+            visibility: visible; /* Make interactive on parent row hover */
         }
 
         .replay-button:hover {
@@ -951,10 +966,21 @@
         // Function to render the system message UI element
         function renderSystemMessageUI(content) {
             if (content && content.trim() !== '') {
+                const messageRow = document.createElement('div'); // New: Create message-row
+                messageRow.classList.add('message-row', 'system-row'); // Added system-row for consistency, styled like assistant-row or custom
+                // System messages typically align left, like assistant.
+                // If specific styling for system-row is needed, add it to CSS.
+                // For now, let's make it behave like an assistant row for alignment.
+                messageRow.classList.add('assistant-row');
+
+
                 const messageDiv = document.createElement('div');
                 messageDiv.classList.add('message', 'system');
                 messageDiv.innerHTML = marked.parse(content);
-                chatMessages.appendChild(messageDiv);
+                // chatMessages.appendChild(messageDiv); // Old
+                messageRow.appendChild(messageDiv);
+                chatMessages.appendChild(messageRow);
+
 
                 // Add a horizontal divider after the system message
                 const divider = document.createElement('hr');
@@ -1827,44 +1853,37 @@
 
         // Function to add a complete message (user or initial assistant error)
         function addMessage(role, content, isComplete = true) {
-            // Add to UI - Parse content as Markdown
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message', role); // Remove 'message-appear' for now, reveal handles visual entry
+            const messageRow = document.createElement('div');
+            messageRow.classList.add('message-row');
+            messageRow.classList.add(role === 'user' ? 'user-row' : 'assistant-row');
+            if (role === 'system') messageRow.classList.add('system-row'); // For system messages
 
-            // Use marked.parse() and set innerHTML for the main content
-            const contentSpan = document.createElement('span'); // Wrap content
-            // Preprocess content to handle <think> tags before Markdown parsing
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', role);
+
+            const contentSpan = document.createElement('span');
             const processedContent = preprocessThinkTags(content);
             contentSpan.innerHTML = marked.parse(processedContent);
             messageDiv.appendChild(contentSpan);
 
-            // --- Add Replay Button for Assistant Messages ---
             if (role === 'assistant') {
-                // Extract audio filenames from metadata (passed via chatbot_update event)
-                // The 'message' object yielded by the backend should contain the metadata
-                // We need to ensure the 'message' object passed to addMessage contains this.
-                // Let's assume the caller of addMessage passes the full message object including metadata.
-                // We'll retrieve it later when the button is clicked.
-                // For now, just add the button structure.
                 const replayButton = document.createElement('button');
                 replayButton.className = 'replay-button';
                 replayButton.title = 'Replay audio';
-                replayButton.innerHTML = replayIconSVG; // Use the new replay icon
-                messageDiv.appendChild(replayButton);
+                replayButton.innerHTML = replayIconSVG;
+                messageDiv.appendChild(replayButton); // Button remains child of messageDiv
             }
-            // --- End Replay Button ---
 
-            chatMessages.appendChild(messageDiv);
+            messageRow.appendChild(messageDiv);
+            chatMessages.appendChild(messageRow);
 
-            // --- Word Reveal (Apply only to the content span) ---
-            // Cancel any previous animation on this div (shouldn't happen for addMessage, but good practice)
+            // --- Word Reveal (Apply only to the content span within messageDiv) ---
             const existingTimeoutIds = JSON.parse(messageDiv.dataset.revealTimeouts || '[]');
             existingTimeoutIds.forEach(clearTimeout);
 
-            // Wrap words and start animation (target the contentSpan)
-            const wordSpans = wrapWordsInSpans(contentSpan); // Target the span
+            const wordSpans = wrapWordsInSpans(contentSpan);
             const timeoutIds = animateWords(wordSpans);
-            messageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store timeout IDs on parent div
+            messageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store on messageDiv
             // --- End Word Reveal ---
 
             scrollToBottom(); // Scroll down
@@ -1890,64 +1909,85 @@
 
         // Function to append text chunks to the last assistant message in the UI
         function appendAssistantMessageChunk(chunkContent) {
-            let lastMessageDiv = chatMessages.lastElementChild;
-
-            // If chat is empty or last message is from user, create a new assistant message div
+            let lastMessageRow = chatMessages.lastElementChild;
+            let lastMessageDiv; // Will be the .message.assistant div
+            let contentSpan;
+            let replayButton;
             let isNewMessage = false;
-            let contentSpan; // Span to hold the actual text content
-            let replayButton; // Replay button element
 
-            if (!lastMessageDiv || !lastMessageDiv.classList.contains('assistant')) {
+            // Check if the last element is an assistant message row and contains a .message.assistant div
+            if (!lastMessageRow ||
+                !lastMessageRow.classList.contains('message-row') ||
+                !lastMessageRow.classList.contains('assistant-row') ||
+                !lastMessageRow.firstChild ||
+                !lastMessageRow.firstChild.classList.contains('message') ||
+                !lastMessageRow.firstChild.classList.contains('assistant')) {
+
+                // Create new message-row for assistant
+                lastMessageRow = document.createElement('div');
+                lastMessageRow.classList.add('message-row', 'assistant-row');
+
+                // Create new messageDiv (.message.assistant)
                 lastMessageDiv = document.createElement('div');
-                lastMessageDiv.classList.add('message', 'assistant'); // Remove 'message-appear'
+                lastMessageDiv.classList.add('message', 'assistant');
 
-                // Create content span and replay button when creating the new message div
                 contentSpan = document.createElement('span');
                 lastMessageDiv.appendChild(contentSpan);
 
                 replayButton = document.createElement('button');
                 replayButton.className = 'replay-button';
                 replayButton.title = 'Replay audio';
-                replayButton.innerHTML = replayIconSVG; // Use the new replay icon
+                replayButton.innerHTML = replayIconSVG;
                 lastMessageDiv.appendChild(replayButton);
 
-                chatMessages.appendChild(lastMessageDiv);
+                lastMessageRow.appendChild(lastMessageDiv);
+                chatMessages.appendChild(lastMessageRow);
                 isNewMessage = true;
             } else {
-                // Find existing content span and replay button
-                contentSpan = lastMessageDiv.querySelector('span'); // Assume first span is content
+                // Existing assistant message row, get the messageDiv
+                lastMessageDiv = lastMessageRow.firstChild; // .message.assistant is the first child of the row
+                contentSpan = lastMessageDiv.querySelector('span:not(.reveal-word)'); // Target the main content span
+                if (!contentSpan && lastMessageDiv.childNodes.length > 0 && lastMessageDiv.childNodes[0].nodeType === Node.ELEMENT_NODE) {
+                    // Fallback if the direct query fails, assume first element child is content span
+                    contentSpan = lastMessageDiv.childNodes[0];
+                }
                 replayButton = lastMessageDiv.querySelector('.replay-button');
-                if (!contentSpan) { // Fallback if span structure somehow missing
+
+                // Fallbacks if structure is missing
+                if (!contentSpan) {
                     console.warn("Could not find content span in existing assistant message. Recreating structure.");
                     lastMessageDiv.innerHTML = ''; // Clear potentially broken structure
                     contentSpan = document.createElement('span');
                     lastMessageDiv.appendChild(contentSpan);
-                    replayButton = document.createElement('button'); // Recreate button too
-                    replayButton.className = 'replay-button';
-                    replayButton.title = 'Replay audio';
-                    replayButton.innerHTML = replayIconSVG; // Use the new replay icon
-                    lastMessageDiv.appendChild(replayButton);
+                    // Re-add replay button if it was also cleared
+                    if (!replayButton) {
+                        replayButton = document.createElement('button');
+                        replayButton.className = 'replay-button';
+                        replayButton.title = 'Replay audio';
+                        replayButton.innerHTML = replayIconSVG;
+                        lastMessageDiv.appendChild(replayButton);
+                    } else {
+                        lastMessageDiv.appendChild(replayButton); // Re-append existing button
+                    }
                 }
-                 if (!replayButton) { // Fallback if button missing
+                 if (!replayButton) {
                     console.warn("Could not find replay button in existing assistant message. Adding one.");
                     replayButton = document.createElement('button');
                     replayButton.className = 'replay-button';
                     replayButton.title = 'Replay audio';
-                    replayButton.innerHTML = replayIconSVG; // Use the new replay icon
+                    replayButton.innerHTML = replayIconSVG;
                     lastMessageDiv.appendChild(replayButton);
                 }
             }
 
-
-            // --- Word Reveal: Cancel previous animation ---
+            // --- Word Reveal: Cancel previous animation on lastMessageDiv ---
             const existingTimeoutIds = JSON.parse(lastMessageDiv.dataset.revealTimeouts || '[]');
             existingTimeoutIds.forEach(clearTimeout);
             // --- End Word Reveal ---
 
-            // Append the chunk content to the existing text content
-            // Store raw text in a data attribute or similar if needed, but for rendering, just append
+            // Append the chunk content to the existing raw text
             const currentRawText = (lastMessageDiv.dataset.rawText || '') + chunkContent;
-            lastMessageDiv.dataset.rawText = currentRawText; // Store accumulated raw text on parent div
+            lastMessageDiv.dataset.rawText = currentRawText; // Store accumulated raw text on messageDiv
 
             // Preprocess the accumulated text for <think> tags before Markdown parsing
             const processedText = preprocessThinkTags(currentRawText);
@@ -1955,12 +1995,11 @@
             contentSpan.innerHTML = marked.parse(processedText);
 
 
-            // --- Word Reveal: Wrap new content and start animation (target the contentSpan) ---
-            const wordSpans = wrapWordsInSpans(contentSpan); // Target the span
-            // Make animation faster for subsequent chunks to "catch up" visually
-            const animationDelay = isNewMessage ? 30 : 10; // Faster delay for updates
+            // --- Word Reveal: Wrap new content in contentSpan and start animation ---
+            const wordSpans = wrapWordsInSpans(contentSpan); // Target the contentSpan
+            const animationDelay = isNewMessage ? 30 : 10;
             const timeoutIds = animateWords(wordSpans, animationDelay);
-            lastMessageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store new timeout IDs on parent div
+            lastMessageDiv.dataset.revealTimeouts = JSON.stringify(timeoutIds); // Store new timeout IDs on messageDiv
             // --- End Word Reveal ---
 
             // Scroll to bottom smoothly

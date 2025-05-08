@@ -90,7 +90,12 @@ async def generate_tts_for_sentence(
         return None
 
     # --- Preprocess text for TTS (Conditional based on model name) ---
-    processed_text = text  # Start with the original text
+    # Start with the original text
+    # Remove markdown bullet points (e.g., "* ", "- ", "+ ") from the beginning of lines
+    # Handles optional leading whitespace before the bullet.
+    processed_text = re.sub(r"^\s*[\*\-\+]\s+", "", text, flags=re.MULTILINE)
+    logger.debug(f"Text after markdown bullet stripping: '{processed_text[:100]}...'")
+
 
     if "kokoro" in tts_model:
         logger.debug(

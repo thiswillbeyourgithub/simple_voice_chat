@@ -88,7 +88,7 @@ from .utils.misc import is_port_in_use
 from .utils.stt import transcribe_audio, check_stt_confidence
 
 # --- Application Version ---
-APP_VERSION = "3.2.0"
+APP_VERSION = "3.3.0"
 # --- End Application Version ---
 
 
@@ -1614,7 +1614,7 @@ def main() -> int:
             level="DEBUG", # Always log DEBUG level to file
             format=log_format_file, # Use non-colored format
             rotation="10 MB",  # Rotate log file when it reaches 10 MB
-            retention="5 files",  # Keep the last 5 log files
+            retention=5,  # Keep the last 5 log files
             encoding="utf-8",
             enqueue=True, # Recommended for performance
             backtrace=True, # Always include backtrace in file logs
@@ -2109,7 +2109,8 @@ def main() -> int:
             try:
                 # This blocks until the window is closed
                 # Always enable debug mode internally, but disable auto-open via settings above.
-                webview.start(debug=True)
+                # Explicitly set gui='qt' to ensure WebRTC compatibility
+                webview.start(debug=True, gui='qt')
             except Exception as e:
                 logger.critical(f"Pywebview encountered an error: {e}")
                 exit_code = 1  # Set error code

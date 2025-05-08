@@ -15,7 +15,7 @@ def _read_readme(filename="README.md"):
 
 setuptools.setup(
     name="simple-voice-chat", # CHANGEME: Verify or change the package name
-    version="3.2.0",
+    version="3.3.0",
     author="thiswillbeyourgithub",
     description="A simple voice chat interface using configurable LLM, STT, and TTS providers.",
     long_description=_read_readme(),
@@ -38,22 +38,22 @@ setuptools.setup(
 
     # Dependencies are now listed directly here
     install_requires=[
-        "qtpy",
-        "filelock",
-        "fastrtc[vad,tts]>=0.0.20.rc2",
-        "openai",
-        "twilio",
-        "python-dotenv",
-        "pywebview", # Removed [qt] extra
-        "PyQt6", # Added explicit Qt binding
-        "PyQt6-WebEngine", # Added explicit Qt WebEngine binding
-        "psutil",
-        "numpy",
-        "fastapi",
-        "uvicorn[standard]",
-        "litellm",
-        "loguru", # Already present, ensuring it's here
-        "platformdirs"
+        "qtpy>=2.4.3",
+        "filelock>=3.18.0",
+        "fastrtc[vad,tts]>=0.0.23",
+        "openai>=1.76.0",
+        "twilio>=9.5.2",
+        "python-dotenv>=1.1.0",
+        "pywebview>=5.4",
+        "PyQt6>=6.9.0",
+        "PyQt6-WebEngine>=6.9.0",
+        "psutil>=7.0.0",
+        "numpy>=2.2.5",
+        "fastapi>=0.115.12",
+        "uvicorn[standard]>=0.34.2",
+        "litellm>=1.67.2",
+        "loguru>=0.7.3",
+        "platformdirs>=4.3.7"
     ],
 
     # Define entry points, e.g., console scripts
@@ -86,4 +86,3 @@ setuptools.setup(
         "Source": "https://github.com/thiswillbeyourgithub/simple_voice_chat",
     },
 )
-

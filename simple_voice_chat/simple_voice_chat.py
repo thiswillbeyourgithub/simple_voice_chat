@@ -2109,7 +2109,8 @@ def main() -> int:
             try:
                 # This blocks until the window is closed
                 # Always enable debug mode internally, but disable auto-open via settings above.
-                webview.start(debug=True)
+                # Explicitly set gui='qt' to ensure WebRTC compatibility
+                webview.start(debug=True, gui='qt')
             except Exception as e:
                 logger.critical(f"Pywebview encountered an error: {e}")
                 exit_code = 1  # Set error code

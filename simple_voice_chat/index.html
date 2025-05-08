@@ -680,8 +680,9 @@
             align-items: center;
             justify-content: center;
             padding: 0; /* Remove default button padding */
-            opacity: 1; /* Always fully visible */
-            transition: background-color 0.2s; /* Only transition background-color */
+            opacity: 0; /* Hidden by default */
+            visibility: hidden; /* Hidden by default and not interactive */
+            transition: background-color 0.2s, opacity 0.2s ease-in-out, visibility 0.2s ease-in-out; /* Updated transition */
             z-index: 5; /* Ensure it's above message content */
             /* Override general button styles */
             min-width: auto;
@@ -691,7 +692,10 @@
             font-size: 14px; /* Adjust icon size if needed */
         }
 
-        /* Removed .message.assistant:hover .replay-button rule as button is now always opaque */
+        .message.assistant:hover .replay-button {
+            opacity: 1; /* Show on parent hover */
+            visibility: visible; /* Make interactive on parent hover */
+        }
 
         .replay-button:hover {
             background-color: #444; /* Slightly lighter on hover */

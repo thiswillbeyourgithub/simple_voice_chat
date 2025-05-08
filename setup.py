@@ -47,6 +47,7 @@ setuptools.setup(
         "pywebview", # Removed [qt] extra
         "PyQt6", # Added explicit Qt binding
         "PyQt6-WebEngine", # Added explicit Qt WebEngine binding
+        "pygobject==3.48.2",  # seems to help with running the UI, otherwise I would get 'ModuleNotFoundError: No module named 'gi'
         "psutil",
         "numpy",
         "fastapi",

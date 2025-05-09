@@ -1060,7 +1060,7 @@ def register_endpoints(app: FastAPI, stream: Stream):
                         if isinstance(data_payload, dict) and "type" in data_payload:
                             event_type = data_payload["type"]
                             try:
-                                event_data_json = json.dumps(data_payload)
+                                event_data_json = json.dumps(data_payload, ensure_ascii=False)
                                 logger.debug(
                                     f"Sending SSE event: type={event_type}, data={event_data_json[:100]}..."
                                 )
@@ -1097,7 +1097,7 @@ def register_endpoints(app: FastAPI, stream: Stream):
                         "type": "error_event",
                         "message": f"Server stream error: {str(e)}",
                     }
-                    yield f"event: error_event\ndata: {json.dumps(error_payload)}\n\n"
+                    yield f"event: error_event\ndata: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
                 except Exception as send_err:
                     logger.error(
                         f"Failed to send error event to client {webrtc_id}: {send_err}"

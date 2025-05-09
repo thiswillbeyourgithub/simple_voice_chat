@@ -1944,6 +1944,16 @@ def main() -> int:
             can_interrupt=True,  # Default: Allow interrupting the bot's response
             # startup_fn=None,    # Default: No function called on connection start
         ),
+        track_constraints={
+            # default values, be left as useful to know about
+            # source: https://fastrtc.org/faq/
+            "echoCancellation": True,
+            "noiseSuppression": {"exact": True},
+            "autoGainControl": {"exact": True},
+            "sampleRate": {"ideal": 24000},
+            "sampleSize": {"ideal": 16},
+            "channelCount": {"exact": 1},
+        },
         rtc_configuration=get_twilio_turn_credentials() if get_space() else None,
         concurrency_limit=5 if get_space() else None,
         time_limit=90 if get_space() else None,

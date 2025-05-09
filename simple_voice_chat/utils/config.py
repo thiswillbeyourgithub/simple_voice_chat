@@ -37,60 +37,65 @@ class AppSettings(BaseModel):
     browser: bool = False
     system_message: str = ""
     startup_timestamp_str: Optional[str] = None # For log filenames etc.
-    backend: str = "classic" # Added: Backend choice
-    openai_realtime_model_arg: str = "gpt-4o-mini-realtime-preview-2024-12-17" # Added: Default model for OpenAI realtime
+    backend: str = "classic"
+    openai_realtime_model_arg: str = "gpt-4o-mini-realtime-preview-2024-12-17"
 
 
-    # --- LLM Config ---
+    # --- LLM Config (Classic Backend) ---
     # Populated from args/env and derived in main()
-    llm_host_arg: Optional[str] = None # From --llm-host
-    llm_port_arg: Optional[str] = None # From --llm-port
-    llm_model_arg: Optional[str] = None # From --llm-model (initial preference)
-    llm_api_key: Optional[str] = None # From --llm-api-key
+    llm_host_arg: Optional[str] = None
+    llm_port_arg: Optional[str] = None
+    llm_model_arg: Optional[str] = None # Initial preference for classic backend
+    llm_api_key: Optional[str] = None # For classic backend LLM
 
-    llm_api_base: Optional[str] = None # Derived
-    use_llm_proxy: bool = False # Derived
-    current_llm_model: Optional[str] = None # Actual current model in use
+    llm_api_base: Optional[str] = None
+    use_llm_proxy: bool = False
+    current_llm_model: Optional[str] = None # Actual current model (classic or OpenAI backend model name)
 
-    available_models: List[str] = Field(default_factory=list)
-    model_cost_data: Dict[str, Dict[str, float]] = Field(default_factory=dict)
+    available_models: List[str] = Field(default_factory=list) # For classic backend model dropdown
+    model_cost_data: Dict[str, Dict[str, float]] = Field(default_factory=dict) # For classic backend
 
     # --- STT Config ---
-    # Populated from args/env and derived in main()
-    stt_host_arg: str = "api.openai.com" # From --stt-host
-    stt_port_arg: str = "443" # From --stt-port
-    stt_model_arg: str = "whisper-1" # From --stt-model
-    stt_language_arg: Optional[str] = None # From --stt-language (initial preference)
-    stt_api_key: Optional[str] = None # From --stt-api-key
+    # STT parameters are primarily for the 'classic' backend.
+    # 'current_stt_language' is also used by the 'openai' backend.
+    stt_host_arg: str = "api.openai.com"
+    stt_port_arg: str = "443"
+    stt_model_arg: str = "whisper-1"
+    stt_language_arg: Optional[str] = None # Initial preference
+    stt_api_key: Optional[str] = None # For classic backend STT
 
-    stt_api_base: Optional[str] = None # Derived
-    is_openai_stt: bool = False # Derived
-    current_stt_language: Optional[str] = None # Actual current STT language
+    stt_api_base: Optional[str] = None # Derived for classic backend
+    is_openai_stt: bool = False # Derived for classic backend
+    current_stt_language: Optional[str] = None # Actual current STT language (both backends)
 
+    # STT Confidence (Classic Backend)
     stt_no_speech_prob_threshold: float = 0.6
     stt_avg_logprob_threshold: float = -0.7
     stt_min_words_threshold: int = 5
 
-    # --- TTS Config ---
-    # Populated from args/env and derived in main()
-    tts_host_arg: str = "api.openai.com" # From --tts-host
-    tts_port_arg: str = "443" # From --tts-port
-    tts_model_arg: str = "tts-1" # From --tts-model
-    tts_voice_arg: Optional[str] = None # From --tts-voice (initial preference)
-    tts_api_key: Optional[str] = None # From --tts-api-key
-    tts_speed_arg: float = 1.0 # From --tts-speed (initial preference)
-    tts_acronym_preserve_list_arg: str = "" # Raw string from --tts-acronym-preserve-list
+    # --- TTS Config (Classic Backend) ---
+    # TTS parameters are for the 'classic' backend.
+    tts_host_arg: str = "api.openai.com"
+    tts_port_arg: str = "443"
+    tts_model_arg: str = "tts-1"
+    tts_voice_arg: Optional[str] = None # Initial preference
+    tts_api_key: Optional[str] = None # For classic backend TTS
+    tts_speed_arg: float = 1.0 # Initial preference
+    tts_acronym_preserve_list_arg: str = ""
 
-    tts_base_url: Optional[str] = None # Derived
-    is_openai_tts: bool = False # Derived
-    tts_acronym_preserve_set: Set[str] = Field(default_factory=set) # Derived
-    current_tts_voice: Optional[str] = None # Actual current TTS voice
-    current_tts_speed: float = 1.0 # Actual current TTS speed
+    tts_base_url: Optional[str] = None # Derived for classic backend
+    is_openai_tts: bool = False # Derived for classic backend
+    tts_acronym_preserve_set: Set[str] = Field(default_factory=set) # Derived for classic backend
+    current_tts_voice: Optional[str] = None # Actual current TTS voice (classic backend)
+    current_tts_speed: float = 1.0 # Actual current TTS speed (classic backend)
 
-    available_voices_tts: List[str] = Field(default_factory=list)
+    available_voices_tts: List[str] = Field(default_factory=list) # For classic backend voice dropdown
 
-    # --- Clients ---
-    # Initialized in main()
+    # --- OpenAI Backend Config ---
+    openai_api_key: Optional[str] = None # Dedicated API key for OpenAI backend
+
+    # --- Clients (Classic Backend) ---
+    # Initialized in main() if backend is 'classic'
     tts_client: Optional[OpenAI] = None
     stt_client: Optional[OpenAI] = None
 

@@ -1,7 +1,6 @@
 import argparse
 import json
 import random
-import os # Added for environment variable access if needed, though settings used directly
 import sys
 import threading
 import time
@@ -1186,8 +1185,6 @@ class Api:
         if self._window:
             self._window.destroy()
 
-    # Removed show_debug_info method as the button is gone
-
 
 # --- Heartbeat Globals ---
 last_heartbeat_time: datetime.datetime | None = None
@@ -1625,11 +1622,6 @@ def main() -> int:
     logger.debug(
         f"Loaded TTS_ACRONYM_PRESERVE_SET: {TTS_ACRONYM_PRESERVE_SET}"
     )  # Log the loaded set
-    # logger.level("websockets", level="INFO") # Example if needed
-    # logger.level("fastrtc", level="INFO")
-    # logger.level("uvicorn", level="WARNING") # Uvicorn logs might need specific handling
-    # logger.level("litellm", level="INFO") # Keep litellm logs if desired
-    # logger.level("requests", level="WARNING") # Example
 
     # --- Setup Chat Log Directory ---
     try:
@@ -1670,13 +1662,7 @@ def main() -> int:
 
     except Exception as e:
         logger.error(f"Failed to create temporary TTS audio directory: {e}. TTS audio saving might fail.")
-        # Attempt to fallback to system temp if platformdirs fails?
-        try:
-            TTS_AUDIO_DIR = Path(tempfile.mkdtemp(prefix="simple_voice_chat_tts_"))
-            logger.warning(f"Falling back to system temporary directory for TTS audio: {TTS_AUDIO_DIR}")
-        except Exception as fallback_e:
-            logger.critical(f"Failed to create any temporary TTS audio directory: {fallback_e}. Exiting.")
-            return 1 # Exit if we can't create any temp dir
+        return 1 # Exit if we can't create any temp dir
 
     # --- Log Final Configuration ---
     logger.info(f"Logging level set to: {log_level}")

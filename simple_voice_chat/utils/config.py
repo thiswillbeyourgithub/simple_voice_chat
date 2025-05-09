@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI # For client type hints
 
 # --- Application Constants ---
-APP_VERSION = "3.3.0" # Matches the version in simple_voice_chat.py
+APP_VERSION = "3.4.0" # Matches the version in simple_voice_chat.py
 OPENAI_TTS_PRICING = {
     "tts-1": 15.00,
     "tts-1-hd": 30.00,

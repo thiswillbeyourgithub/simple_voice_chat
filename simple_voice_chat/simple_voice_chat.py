@@ -735,14 +735,14 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
             "turn_detection": {"type": "server_vad"},
             "input_audio_transcription": transcription_config,
         }
-        if self.current_openai_voice:
-            session_params["output_audio_generation"] = {"voice": self.current_openai_voice}
+        # Voice parameter is now part of connect_kwargs
         
         # Parameters for client.beta.realtime.connect()
         connect_kwargs: Dict[str, Any] = {
             "model": self.settings.openai_realtime_model_arg
         }
-        # Voice parameter is NOT part of connect_kwargs, it's in session_params
+        if self.current_openai_voice:
+            connect_kwargs["voice"] = self.current_openai_voice
         
         try:
             self._reset_turn_usage_state() # Reset usage for new connection/session

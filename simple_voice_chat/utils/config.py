@@ -44,6 +44,8 @@ GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
 
 # --- End Application Constants ---
 
+# Import env var for Pydantic default
+from .env import OPENAI_REALTIME_MODEL_ENV
 
 class AppSettings(BaseModel):
     """
@@ -67,7 +69,7 @@ class AppSettings(BaseModel):
     system_message: str = ""
     startup_timestamp_str: Optional[str] = None # For log filenames etc.
     backend: str = "classic"
-    openai_realtime_model_arg: str = "gpt-4o-mini-realtime-preview-2024-12-17"
+    openai_realtime_model_arg: str = OPENAI_REALTIME_MODEL_ENV
 
 
     # --- LLM Config (Classic Backend) ---

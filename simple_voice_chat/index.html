@@ -901,6 +901,10 @@
         let cumulativeTtsCost = 0.0; // Added: TTS Cost
         let cumulativeTotalCost = 0.0; // Total
 
+        // --- WebRTC Setup State ---
+        let webRtcSetupRetryTimeout = null; // Timeout ID for retrying WebRTC setup
+        const WEBRTC_SETUP_RETRY_DELAY = 1000; // 1 second delay for retries
+
         // --- UI Zoom State ---
         let currentZoomLevel = 1.0; // Initial zoom level (100%)
         const zoomStep = 0.1; // How much to zoom in/out per scroll step
@@ -1589,7 +1593,14 @@
                 if (err instanceof DOMException) {
                     console.error(`DOMException: ${err.name} - ${err.message}`);
                     if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                        userMessage = 'No microphone found. Please ensure one is connected and enabled.';
+                        userMessage = 'No microphone found. Retrying in 1 second...';
+                        showToast(userMessage, "warning"); // Show warning for retry
+                        updateStatusIndicator('connecting', 'Mic not found, retrying...');
+                        // Clear any existing retry timeout
+                        if (webRtcSetupRetryTimeout) clearTimeout(webRtcSetupRetryTimeout);
+                        // Schedule retry
+                        webRtcSetupRetryTimeout = setTimeout(setupWebRTC, WEBRTC_SETUP_RETRY_DELAY);
+                        return; // Exit current attempt, retry will be scheduled
                     } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                         userMessage = 'Microphone access denied. Please grant permission in browser settings.';
                     } else if (err.name === 'OperationError') {
@@ -1603,8 +1614,9 @@
                      userMessage = "Received invalid response from server.";
                 }
 
+                // For errors other than NotFoundError, show error and stop
                 showToast(userMessage, "error");
-                stop(); // Ensure cleanup happens regardless of error type
+                stop(); // Ensure cleanup happens for non-retryable errors
             }
         }
 

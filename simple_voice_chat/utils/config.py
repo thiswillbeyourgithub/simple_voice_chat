@@ -14,6 +14,7 @@ OPENAI_TTS_PRICING = {
 OPENAI_TTS_VOICES = [
     "alloy", "echo", "fable", "onyx", "nova", "shimmer", "ash",
 ]
+# soruce: https://platform.openai.com/docs/pricing
 OPENAI_REALTIME_VOICES = OPENAI_TTS_VOICES
 OPENAI_REALTIME_MODELS = ["gpt-4o-mini-realtime-preview", "gpt-4o-realtime-preview"]
 OPENAI_REALTIME_PRICING = {

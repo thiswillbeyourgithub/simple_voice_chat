@@ -824,15 +824,18 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Connection Error: {str(e)}"}))
         finally:
             logger.info("OpenAIRealtimeHandler: start_up processing loop finished.")
-            if self.connection and not self.connection.closed:
-                logger.info("OpenAIRealtimeHandler: Closing connection in finally block.")
-                await self.connection.close()
-            self.connection = None
-            await self.output_queue.put(None)
+            if self.connection:
+                logger.info("OpenAIRealtimeHandler: Closing connection in start_up finally block.")
+                try:
+                    await self.connection.close()
+                except Exception as e:
+                    logger.warning(f"OpenAIRealtimeHandler: Error closing connection in start_up finally: {e}")
+            self.connection = None # Ensure connection is set to None
+            await self.output_queue.put(None) # Signal end or error to emit
 
 
     async def receive(self, frame: tuple[int, np.ndarray]) -> None:
-        if not self.connection or self.connection.closed:
+        if not self.connection: # Check if connection object exists
             return
         
         _, array = frame
@@ -848,6 +851,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
             await self.connection.input_audio_buffer.append(audio=audio_message)
         except Exception as e: 
             logger.error(f"OpenAIRealtimeHandler: Error sending audio: {e}")
+            # Consider if self.connection should be set to None here if error indicates a dead connection
 
 
     async def emit(self) -> tuple[int, np.ndarray] | AdditionalOutputs | None:
@@ -855,9 +859,13 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
 
     async def shutdown(self) -> None:
         logger.info("OpenAIRealtimeHandler: Shutting down...")
-        if self.connection and not self.connection.closed:
-            await self.connection.close()
-        self.connection = None
+        if self.connection:
+            logger.info("OpenAIRealtimeHandler: Closing connection in shutdown.")
+            try:
+                await self.connection.close()
+            except Exception as e:
+                logger.warning(f"OpenAIRealtimeHandler: Error closing connection in shutdown: {e}")
+        self.connection = None # Ensure connection is set to None
         if self.client:
             await self.client.close() 
             self.client = None

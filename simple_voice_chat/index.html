@@ -1253,12 +1253,8 @@
                 // Voice input parent element will be displayed by default if optionsRow is visible.
                 // fetchAndPopulateVoices will correctly populate it for OpenAI backend.
                 if (ttsSpeedInput.parentElement) ttsSpeedInput.parentElement.style.display = 'none';
-                // Cost display for OpenAI realtime
-                costDetails.style.display = 'none';
-                document.getElementById('input-cost').textContent = 'N/A';
-                document.getElementById('output-cost').textContent = 'N/A';
-                document.getElementById('tts-cost').textContent = 'N/A';
-                document.getElementById('total-cost').textContent = 'N/A (OpenAI Realtime)';
+                // Cost display for OpenAI realtime will now be handled by updateCostDisplay.
+                // No longer setting to N/A here. Initial values are set by resetCumulativeCosts or on load.
             } else { // classic backend
                 if (voiceInput.parentElement) voiceInput.parentElement.style.display = 'flex';
                 if (ttsSpeedInput.parentElement) ttsSpeedInput.parentElement.style.display = 'flex';
@@ -1591,12 +1587,8 @@
             });
 
             eventSource.addEventListener("cost_update", (event) => {
-                if (currentBackend === 'openai') {
-                    console.log("Cost update event received for OpenAI backend, but not processed.");
-                    document.getElementById('total-cost').textContent = 'N/A (OpenAI Realtime)';
-                    costDetails.style.display = 'none';
-                    return;
-                }
+                // Removed the conditional block that ignored OpenAI backend costs.
+                // Now, cost_updates from both backends will be processed by updateCostDisplay.
                 try {
                     const eventJson = JSON.parse(event.data);
                     console.log("Cost update event received:", eventJson);

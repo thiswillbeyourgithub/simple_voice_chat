@@ -37,6 +37,9 @@ class AppSettings(BaseModel):
     browser: bool = False
     system_message: str = ""
     startup_timestamp_str: Optional[str] = None # For log filenames etc.
+    backend: str = "classic" # Added: Backend choice
+    openai_realtime_model_arg: str = "gpt-4o-mini-realtime-preview-2024-12-17" # Added: Default model for OpenAI realtime
+
 
     # --- LLM Config ---
     # Populated from args/env and derived in main()

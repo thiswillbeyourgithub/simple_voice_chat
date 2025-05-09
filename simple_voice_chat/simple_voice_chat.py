@@ -9,6 +9,7 @@ import webbrowser
 import tempfile
 import asyncio
 import re
+import base64 # Ensure it's used if needed by OpenAIRealtimeHandler
 from pathlib import Path
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
@@ -18,6 +19,7 @@ import numpy as np
 import webview
 import platformdirs
 import click # Added click
+import openai # Ensure openai is imported for AsyncOpenAI
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import (
@@ -33,15 +35,17 @@ from fastrtc import (
     get_twilio_turn_credentials,
     AlgoOptions,
     SileroVadOptions,
+    AsyncStreamHandler, # Added AsyncStreamHandler
+    wait_for_item, # Added wait_for_item
 )
 from gradio.utils import get_space
-from openai import OpenAI, AuthenticationError
+from openai import OpenAI, AuthenticationError # OpenAI is already here, AuthenticationError too
 from pydantic import BaseModel
 from pydub import AudioSegment
 
 # --- Import Configuration ---
 # This 'settings' instance will be populated in main() and used throughout.
-from .utils.config import settings, APP_VERSION, OPENAI_TTS_PRICING, OPENAI_TTS_VOICES
+from .utils.config import settings, APP_VERSION, OPENAI_TTS_PRICING, OPENAI_TTS_VOICES, AppSettings # Added AppSettings for type hint
 # --- End Import Configuration ---
 
 
@@ -69,6 +73,7 @@ from .utils.env import (
     TTS_ACRONYM_PRESERVE_LIST_ENV,
     APP_PORT_ENV,
     SYSTEM_MESSAGE_ENV,
+    # OPENAI_REALTIME_MODEL_ENV, # This would be added to utils/env.py if used
 )
 
 # Import other utils functions
@@ -95,6 +100,10 @@ pywebview_window = None  # To hold the pywebview window object if created
 uvicorn_server = None # Global variable to hold the Uvicorn server instance
 # --- End Global Configuration & State ---
 
+# --- Constants ---
+OPENAI_REALTIME_SAMPLE_RATE = 24000
+# --- End Constants ---
+
 
 # --- Chat History Saving Function ---
 def save_chat_history(history: List[Dict[str, str]]):
@@ -117,7 +126,7 @@ def save_chat_history(history: List[Dict[str, str]]):
         logger.error(f"An unexpected error occurred while saving chat history: {e}")
 
 
-# --- Core Response Logic (Async Streaming with Background TTS) ---
+# --- Core Response Logic (Async Streaming with Background TTS - CLASSIC BACKEND) ---
 async def response(
     audio: tuple[int, np.ndarray],
     chatbot: list[dict] | None = None,
@@ -125,6 +134,7 @@ async def response(
     """
     Handles audio input, performs STT, streams LLM response text chunks to UI,
     generates TTS concurrently, and yields final audio and updates.
+    This function is used by the 'classic' backend.
     """
     # Access module-level variables set after arg parsing in main()
     # Ensure clients are initialized (should be, but good practice)
@@ -663,14 +673,226 @@ class InputData(BaseModel):
     chatbot: list[ChatMessage] # Use the new ChatMessage model
 
 
+# --- OpenAI Realtime Handler ---
+class OpenAIRealtimeHandler(AsyncStreamHandler):
+    def __init__(self, app_settings: "AppSettings") -> None:
+        super().__init__(
+            expected_layout="mono", # OpenAI expects mono
+            output_sample_rate=OPENAI_REALTIME_SAMPLE_RATE,
+            input_sample_rate=OPENAI_REALTIME_SAMPLE_RATE, # fastrtc will resample if necessary
+        )
+        self.settings = app_settings
+        self.connection = None
+        self.output_queue = asyncio.Queue()
+        self.client: Optional[openai.AsyncOpenAI] = None # Use AsyncOpenAI
+        self.current_stt_language = self.settings.current_stt_language # Initialize with current setting
+
+    def copy(self):
+        # Create a new instance with the same settings
+        return OpenAIRealtimeHandler(self.settings)
+
+    async def start_up(self):
+        logger.info("OpenAIRealtimeHandler: Starting up and connecting to OpenAI...")
+        self.client = openai.AsyncOpenAI(api_key=self.settings.llm_api_key) # Use llm_api_key as the OpenAI key
+
+        # Update STT language for the session if it has changed via UI
+        # This check ensures that if the language was changed through the UI while the handler
+        # was idle (not connected), the new language is used for the new connection.
+        if self.current_stt_language != self.settings.current_stt_language:
+            self.current_stt_language = self.settings.current_stt_language
+            logger.info(f"OpenAIRealtimeHandler: STT language updated to: {self.current_stt_language or 'auto-detect'}")
+
+        transcription_config: Dict[str, Any] = {
+            "model": self.settings.stt_model_arg if "whisper" in self.settings.stt_model_arg else "whisper-1",
+        }
+        if self.current_stt_language: # Only add language if it's not None or empty
+            transcription_config["language"] = self.current_stt_language
+        
+        try:
+            async with self.client.beta.realtime.connect(
+                model=self.settings.openai_realtime_model_arg
+            ) as conn:
+                await conn.session.update(
+                    session={
+                        "turn_detection": {"type": "server_vad"},
+                        "input_audio_transcription": transcription_config,
+                    }
+                )
+                self.connection = conn
+                logger.info("OpenAIRealtimeHandler: Connection established.")
+                async for event in self.connection:
+                    # logger.debug(f"OpenAIRealtime Event: {event.type}") # Can be very verbose
+                    if event.type == "input_audio_buffer.speech_started":
+                        self.clear_queue() # Clear any pending audio from previous turn
+                        await self.output_queue.put(
+                            AdditionalOutputs(
+                                {
+                                    "type": "status_update",
+                                    "status": "stt_processing", # More like "listening" or "speech_detected"
+                                    "message": "Listening...",
+                                }
+                            )
+                        )
+                    elif event.type == "conversation.item.input_audio_transcription.completed":
+                        user_message = ChatMessage(
+                            role="user", 
+                            content=event.transcript, 
+                            metadata=ChatMessageMetadata(timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
+                        )
+                        await self.output_queue.put(
+                            AdditionalOutputs({"type": "chatbot_update", "message": user_message.model_dump()})
+                        )
+                        await self.output_queue.put(
+                            AdditionalOutputs(
+                                {
+                                    "type": "status_update",
+                                    "status": "llm_waiting", 
+                                    "message": "AI Responding...",
+                                }
+                            )
+                        )
+                    elif event.type == "response.audio_transcript.done":
+                        assistant_message = ChatMessage(
+                            role="assistant", 
+                            content=event.transcript, 
+                            metadata=ChatMessageMetadata(
+                                timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), 
+                                llm_model=self.settings.openai_realtime_model_arg
+                            )
+                        )
+                        await self.output_queue.put(
+                            AdditionalOutputs({"type": "chatbot_update", "message": assistant_message.model_dump()})
+                        )
+                        await self.output_queue.put(
+                            AdditionalOutputs(
+                                {
+                                    "type": "status_update",
+                                    "status": "idle",
+                                    "message": "Ready",
+                                }
+                            )
+                        )
+                        # Send final_chatbot_state. Client uses its local history.
+                        await self.output_queue.put(
+                            AdditionalOutputs(
+                                {
+                                    "type": "final_chatbot_state",
+                                    "history": [], # Client should rely on its locally built history
+                                }
+                            )
+                        )
+                    elif event.type == "response.audio.delta":
+                        audio_data = np.frombuffer(
+                            base64.b64decode(event.delta), dtype=np.int16
+                        )
+                        if audio_data.ndim == 1: # Ensure 2D for fastrtc (1, num_samples)
+                            audio_data = audio_data.reshape(1, -1)
+                        await self.output_queue.put(
+                            (
+                                OPENAI_REALTIME_SAMPLE_RATE,
+                                audio_data,
+                            ),
+                        )
+                    elif event.type == "error":
+                        logger.error(f"OpenAI Realtime API Error: {event.message}")
+                        await self.output_queue.put(
+                            AdditionalOutputs(
+                                {
+                                    "type": "status_update",
+                                    "status": "error",
+                                    "message": f"OpenAI Error: {event.message}",
+                                }
+                            )
+                        )
+                        error_chat_message = ChatMessage(role="assistant", content=f"[OpenAI Error: {event.message}]")
+                        await self.output_queue.put(
+                            AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()})
+                        )
+                        await self.output_queue.put(
+                            AdditionalOutputs(
+                                {
+                                    "type": "status_update",
+                                    "status": "idle",
+                                    "message": "Ready (after error)",
+                                }
+                            )
+                        )
+                        # Consider if we need to send final_chatbot_state here too
+                        await self.output_queue.put(
+                            AdditionalOutputs(
+                                {
+                                    "type": "final_chatbot_state",
+                                    "history": [], 
+                                }
+                            )
+                        )
+
+
+        except openai.AuthenticationError as e:
+            logger.error(f"OpenAIRealtimeHandler: Authentication Error: {e}")
+            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": "OpenAI Auth Error. Check API Key."}))
+        except Exception as e:
+            logger.error(f"OpenAIRealtimeHandler: Connection failed or error during session: {e}", exc_info=True)
+            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Connection Error: {str(e)}"}))
+        finally:
+            logger.info("OpenAIRealtimeHandler: start_up processing loop finished.")
+            if self.connection and not self.connection.closed:
+                logger.info("OpenAIRealtimeHandler: Closing connection in finally block.")
+                await self.connection.close()
+            self.connection = None
+            # Signal that the handler is done if it exits start_up (e.g., connection closed, error)
+            # This helps the emit loop in fastrtc to terminate if start_up is not running.
+            await self.output_queue.put(None)
+
+
+    async def receive(self, frame: tuple[int, np.ndarray]) -> None:
+        if not self.connection or self.connection.closed:
+            # logger.warning("OpenAIRealtimeHandler: No active connection or connection closed, cannot send audio.")
+            return
+        
+        _, array = frame
+        if array.ndim > 1: 
+            array = array.squeeze()
+
+        if array.dtype != np.int16:
+            array = array.astype(np.int16)
+
+        audio_bytes = array.tobytes()
+        audio_message = base64.b64encode(audio_bytes).decode("utf-8")
+        try:
+            await self.connection.input_audio_buffer.append(audio=audio_message)
+        except Exception as e: # Catch specific errors if possible, e.g., related to closed connection
+            logger.error(f"OpenAIRealtimeHandler: Error sending audio: {e}")
+            # If connection is closed, this might raise an error.
+            # The start_up loop should handle reconnection or permanent closure.
+
+    async def emit(self) -> tuple[int, np.ndarray] | AdditionalOutputs | None:
+        return await wait_for_item(self.output_queue)
+
+    async def shutdown(self) -> None:
+        logger.info("OpenAIRealtimeHandler: Shutting down...")
+        if self.connection and not self.connection.closed:
+            await self.connection.close()
+        self.connection = None
+        if self.client:
+            await self.client.close() 
+            self.client = None
+        self.clear_queue()
+        await self.output_queue.put(None) # Ensure emit unblocks
+        logger.info("OpenAIRealtimeHandler: Shutdown complete.")
+
+    def clear_queue(self):
+        # Utility to clear the queue, e.g., on speech interruption or shutdown
+        while not self.output_queue.empty():
+            try:
+                self.output_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        logger.debug("OpenAIRealtimeHandler: Output queue cleared.")
+
 # --- Endpoint Definitions ---
-# These need access to the 'app' and 'stream' objects created in main()
-# We can define them here but register them with the app inside main()
-
-
 def register_endpoints(app: FastAPI, stream: Stream):
     """Registers FastAPI endpoints."""
-    # Get current directory relative to this file
     curr_dir = Path(__file__).parent
 
     @app.get("/")
@@ -685,7 +907,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
             )
 
         html_content = index_path.read_text()
-        # Inject RTC config
         if rtc_config:
             html_content = html_content.replace(
                 "__RTC_CONFIGURATION__", json.dumps(rtc_config)
@@ -693,39 +914,29 @@ def register_endpoints(app: FastAPI, stream: Stream):
         else:
             html_content = html_content.replace("__RTC_CONFIGURATION__", "null")
 
-        # Inject the system message (using the final SYSTEM_MESSAGE string)
         html_content = html_content.replace(
             "__SYSTEM_MESSAGE_JSON__", json.dumps(settings.system_message)
         )
-        # Inject the application version
         html_content = html_content.replace("__APP_VERSION__", APP_VERSION)
-        # Inject the initial STT language (using the final current_stt_language string)
         html_content = html_content.replace(
             "__STT_LANGUAGE_JSON__", json.dumps(settings.current_stt_language)
         )
-        # Inject the initial TTS speed
         html_content = html_content.replace(
             "__TTS_SPEED_JSON__", json.dumps(settings.current_tts_speed)
         )
-        # Inject the startup timestamp string
         html_content = html_content.replace(
             "__STARTUP_TIMESTAMP_STR__", json.dumps(settings.startup_timestamp_str)
         )
-
-
+        # Inject backend type
+        html_content = html_content.replace(
+            "__BACKEND_TYPE__", json.dumps(settings.backend)
+        )
         return HTMLResponse(content=html_content, status_code=200)
 
     @app.post("/input_hook")
     async def _(body: InputData):
-        # The body.chatbot is now a list of ChatMessage objects thanks to Pydantic validation
-        # Convert them to dictionaries for internal use (e.g., passing to stream handler)
-        # Ensure metadata is preserved if present. model_dump(exclude_none=True) might be useful
-        # if we want to keep the JSON clean, but let's keep all fields for now.
         chatbot_history = [msg.model_dump() for msg in body.chatbot]
-
-        # Assuming fastrtc handler `response` expects a list of dictionaries matching ChatMessage structure.
-        # If issues arise, we might need to store/retrieve state differently.
-        stream.set_input(body.webrtc_id, chatbot_history)  # Keep as is for now
+        stream.set_input(body.webrtc_id, chatbot_history)
         return {"status": "ok"}
 
     @app.get("/outputs")
@@ -733,8 +944,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
         async def output_stream():
             try:
                 async for output in stream.output_stream(webrtc_id):
-                    # The async handler `response` now yields audio tuples directly
-                    # and AdditionalOutputs for SSE events.
                     if isinstance(output, AdditionalOutputs):
                         data_payload = output.args[0]
                         if isinstance(data_payload, dict) and "type" in data_payload:
@@ -753,19 +962,15 @@ def register_endpoints(app: FastAPI, stream: Stream):
                             logger.warning(
                                 f"Received AdditionalOutputs with unexpected payload structure: {data_payload}"
                             )
-                    # Audio chunks are handled by WebRTC track, not sent via SSE.
-                    # The handler yields them, fastrtc puts them on the track.
                     elif (
                         isinstance(output, tuple)
                         and len(output) == 2
                         and isinstance(output[1], np.ndarray)
                     ):
-                        # This case should be handled by fastrtc internally for the audio track.
-                        # We don't need to send it via SSE. Log if it appears here unexpectedly.
                         logger.debug(
                             f"Output stream received audio tuple for webrtc_id {webrtc_id}, should be handled by track."
                         )
-                        pass  # Audio is sent via WebRTC track
+                        pass 
                     elif isinstance(output, bytes):
                         logger.warning(
                             "Received raw bytes directly in output stream, expected AdditionalOutputs or audio tuple via handler."
@@ -776,43 +981,47 @@ def register_endpoints(app: FastAPI, stream: Stream):
                         )
             except Exception as e:
                 logger.error(f"Error in output stream for webrtc_id {webrtc_id}: {e}")
-                # Optionally send an error event to the client via SSE if possible
                 try:
                     error_payload = {
                         "type": "error_event",
-                        "message": f"Server stream error: {e}",
+                        "message": f"Server stream error: {str(e)}",
                     }
                     yield f"event: error_event\ndata: {json.dumps(error_payload)}\n\n"
                 except Exception as send_err:
                     logger.error(
                         f"Failed to send error event to client {webrtc_id}: {send_err}"
                     )
-
         return StreamingResponse(output_stream(), media_type="text/event-stream")
 
-    # --- Endpoint to Get Available Models ---
     @app.get("/available_models")
     async def get_available_models():
-        # Access from settings object
-        return JSONResponse(
-            {"available": settings.available_models, "current": settings.current_llm_model}
-        )
+        if settings.backend == "openai":
+            return JSONResponse(
+                {"available": [settings.openai_realtime_model_arg], "current": settings.openai_realtime_model_arg}
+            )
+        else: # classic
+            return JSONResponse(
+                {"available": settings.available_models, "current": settings.current_llm_model}
+            )
 
-    # --- Endpoint to Get Available Voices ---
     @app.get("/available_voices_tts")
-    async def get_available_voices():
-        # Access from settings object
-        response_data = prepare_available_voices_data(
-            settings.current_tts_voice, settings.available_voices_tts
-        )
-        return JSONResponse(response_data)
+    async def get_available_voices_tts():
+        if settings.backend == "openai":
+            return JSONResponse({"available": [], "current": None, "is_openai": True}) # No voices for OpenAI realtime
+        else: # classic
+            response_data = prepare_available_voices_data(
+                settings.current_tts_voice, settings.available_voices_tts
+            )
+            return JSONResponse(response_data)
 
-    # --- End Voice Endpoint ---
-
-    # --- Endpoint to Switch Voice ---
     @app.post("/switch_voice")
     async def switch_voice(request: Request):
-        # Modify settings.current_tts_voice
+        if settings.backend == "openai":
+            return JSONResponse(
+                {"status": "error", "message": "Voice switching not available for OpenAI realtime backend."},
+                status_code=400,
+            )
+        # Classic backend logic
         try:
             data = await request.json()
             new_voice_name = data.get("voice_name")
@@ -825,7 +1034,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
                             {"status": "success", "voice": settings.current_tts_voice}
                         )
                     else:
-                        # Voice not found in the available list
                         logger.warning(
                             f"Attempted to switch to voice '{new_voice_name}' which is not in the available list: {settings.available_voices_tts}"
                         )
@@ -837,14 +1045,11 @@ def register_endpoints(app: FastAPI, stream: Stream):
                     logger.info(f"Voice already set to: {new_voice_name}")
                     return JSONResponse(
                         {"status": "success", "voice": settings.current_tts_voice}
-                    )  # Still success
-            else: # No voice_name provided
+                    ) 
+            else: 
                 logger.warning(f"Missing voice_name in switch request.")
                 return JSONResponse(
-                    {
-                        "status": "error",
-                        "message": f"Missing 'voice_name' in request body.",
-                    },
+                    {"status": "error", "message": f"Missing 'voice_name' in request body."},
                     status_code=400,
                 )
         except json.JSONDecodeError:
@@ -856,26 +1061,20 @@ def register_endpoints(app: FastAPI, stream: Stream):
         except Exception as e:
             logger.error(f"Error processing /switch_voice request: {e}")
             return JSONResponse(
-                {"status": "error", "message": f"Internal server error: {e}"},
+                {"status": "error", "message": f"Internal server error: {str(e)}"},
                 status_code=500,
             )
 
-    # --- End Switch Voice Endpoint ---
-
-    # --- Endpoint to Switch STT Language ---
     @app.post("/switch_stt_language")
     async def switch_stt_language(request: Request):
-        # Modify settings.current_stt_language
         try:
             data = await request.json()
-            # Allow empty string to clear the language setting (use auto-detect)
-            new_language = data.get("stt_language", None) # Get value, None if key missing
+            new_language = data.get("stt_language", None) 
 
-            # Normalize empty string or None to None for internal consistency
             if new_language is not None and not new_language.strip():
                 new_language = None
             elif new_language is not None:
-                new_language = new_language.strip() # Use stripped value if not empty
+                new_language = new_language.strip()
 
             if new_language != settings.current_stt_language:
                 settings.current_stt_language = new_language
@@ -892,7 +1091,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
                 return JSONResponse(
                     {"status": "success", "stt_language": settings.current_stt_language}
                 )
-
         except json.JSONDecodeError:
             logger.error("Failed to decode JSON body in /switch_stt_language")
             return JSONResponse(
@@ -902,18 +1100,21 @@ def register_endpoints(app: FastAPI, stream: Stream):
         except Exception as e:
             logger.error(f"Error processing /switch_stt_language request: {e}")
             return JSONResponse(
-                {"status": "error", "message": f"Internal server error: {e}"},
+                {"status": "error", "message": f"Internal server error: {str(e)}"},
                 status_code=500,
             )
-    # --- End Switch STT Language Endpoint ---
 
-    # --- Endpoint to Switch TTS Speed ---
     @app.post("/switch_tts_speed")
     async def switch_tts_speed(request: Request):
-        # Modify settings.current_tts_speed
+        if settings.backend == "openai":
+            return JSONResponse(
+                {"status": "error", "message": "TTS speed adjustment not available for OpenAI realtime backend."},
+                status_code=400,
+            )
+        # Classic backend logic
         try:
             data = await request.json()
-            new_speed = data.get("tts_speed") # Get value
+            new_speed = data.get("tts_speed") 
 
             if new_speed is None:
                 logger.warning("Missing 'tts_speed' in switch request.")
@@ -921,10 +1122,8 @@ def register_endpoints(app: FastAPI, stream: Stream):
                     {"status": "error", "message": "Missing 'tts_speed' in request body."},
                     status_code=400,
                 )
-
             try:
                 new_speed_float = float(new_speed)
-                # Validate range
                 if not (0.1 <= new_speed_float <= 4.0):
                     raise ValueError("TTS speed must be between 0.1 and 4.0")
             except (ValueError, TypeError):
@@ -949,7 +1148,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
                 return JSONResponse(
                     {"status": "success", "tts_speed": settings.current_tts_speed}
                 )
-
         except json.JSONDecodeError:
             logger.error("Failed to decode JSON body in /switch_tts_speed")
             return JSONResponse(
@@ -959,95 +1157,100 @@ def register_endpoints(app: FastAPI, stream: Stream):
         except Exception as e:
             logger.error(f"Error processing /switch_tts_speed request: {e}")
             return JSONResponse(
-                {"status": "error", "message": f"Internal server error: {e}"},
+                {"status": "error", "message": f"Internal server error: {str(e)}"},
                 status_code=500,
             )
-    # --- End Switch TTS Speed Endpoint ---
 
-    # --- Endpoint to Switch Model ---
     @app.post("/switch_model")
     async def switch_model(request: Request):
-        # Modify settings.current_llm_model
-        try:
-            data = await request.json()
-            new_model_name = data.get(
-                "model_name"
-            )  # This name comes from the frontend dropdown (already prefixed if from proxy)
-
-            if new_model_name:
-                if new_model_name != settings.current_llm_model:
-                    # Check if the new model exists in our loaded list (which contains prefixed names if applicable)
-                    if new_model_name in settings.available_models:
-                        settings.current_llm_model = new_model_name
-                        logger.info(
-                            f"Switched active LLM model to: {settings.current_llm_model}"
-                        )
-                        # Check if cost data is available for the switched model (using the potentially prefixed name)
-                        if (
-                            new_model_name not in settings.model_cost_data
-                            or settings.model_cost_data[new_model_name].get(
-                                "input_cost_per_token"
+        if settings.backend == "openai":
+            try:
+                data = await request.json()
+                new_model_name = data.get("model_name")
+                if new_model_name and new_model_name == settings.openai_realtime_model_arg:
+                     logger.info(f"OpenAI Realtime model already set to: {new_model_name}")
+                     return JSONResponse({"status": "success", "model": new_model_name})
+                elif new_model_name:
+                    logger.warning(f"Switching OpenAI realtime model via API not fully supported yet. Current: {settings.openai_realtime_model_arg}. Requested: {new_model_name}")
+                    return JSONResponse(
+                        {"status": "error", "message": "Switching OpenAI realtime model via API is not fully supported. Use command-line argument."},
+                        status_code=400,
+                    )
+                else:
+                    return JSONResponse(
+                        {"status": "error", "message": "Missing 'model_name' in request body."},
+                        status_code=400,
+                    )
+            except Exception as e:
+                logger.error(f"Error processing /switch_model for OpenAI backend: {e}")
+                return JSONResponse({"status": "error", "message": "Internal server error"}, status_code=500)
+        else: # classic backend
+            try:
+                data = await request.json()
+                new_model_name = data.get("model_name")
+                if new_model_name:
+                    if new_model_name != settings.current_llm_model:
+                        if new_model_name in settings.available_models:
+                            settings.current_llm_model = new_model_name
+                            logger.info(
+                                f"Switched active LLM model to: {settings.current_llm_model}"
                             )
-                            is None
-                        ):
+                            if (
+                                new_model_name not in settings.model_cost_data
+                                or settings.model_cost_data[new_model_name].get(
+                                    "input_cost_per_token"
+                                )
+                                is None
+                            ):
+                                logger.warning(
+                                    f"Cost data might be missing or incomplete for the newly selected model '{settings.current_llm_model}'."
+                                )
+                            return JSONResponse(
+                                {"status": "success", "model": settings.current_llm_model}
+                            )
+                        else:
                             logger.warning(
-                                f"Cost data might be missing or incomplete for the newly selected model '{settings.current_llm_model}'."
+                                f"Attempted to switch to model '{new_model_name}' which is not in the available list: {settings.available_models}"
                             )
+                            return JSONResponse(
+                                {"status": "error", "message": f"Model '{new_model_name}' is not available."},
+                                status_code=400,
+                            )
+                    else:
+                        logger.info(f"Model already set to: {new_model_name}")
                         return JSONResponse(
                             {"status": "success", "model": settings.current_llm_model}
                         )
-                    else:
-                        # Model not found in the available list
-                        logger.warning(
-                            f"Attempted to switch to model '{new_model_name}' which is not in the available list: {settings.available_models}"
-                        )
-                        return JSONResponse(
-                            {"status": "error", "message": f"Model '{new_model_name}' is not available."},
-                            status_code=400,
-                        )
-                else:
-                    logger.info(f"Model already set to: {new_model_name}")
+                else: 
+                    logger.warning(f"Missing model_name in switch request.")
                     return JSONResponse(
-                        {"status": "success", "model": settings.current_llm_model}
-                    )  # Still success
-            else: # No model_name provided
-                logger.warning(f"Missing model_name in switch request.")
+                        {"status": "error", "message": f"Missing 'model_name' in request body."},
+                        status_code=400,
+                    )
+            except json.JSONDecodeError:
+                logger.error("Failed to decode JSON body in /switch_model")
                 return JSONResponse(
-                    {
-                        "status": "error",
-                        "message": f"Missing 'model_name' in request body.",
-                    },
+                    {"status": "error", "message": "Invalid JSON format in request body"},
                     status_code=400,
                 )
-        except json.JSONDecodeError:
-            logger.error("Failed to decode JSON body in /switch_model")
-            return JSONResponse(
-                {"status": "error", "message": "Invalid JSON format in request body"},
-                status_code=400,
-            )
-        except Exception as e:
-            logger.error(f"Error processing /switch_model request: {e}")
-            return JSONResponse(
-                {"status": "error", "message": f"Internal server error: {e}"},
-                status_code=500,
-            )
+            except Exception as e:
+                logger.error(f"Error processing /switch_model request: {e}")
+                return JSONResponse(
+                    {"status": "error", "message": f"Internal server error: {str(e)}"},
+                    status_code=500,
+                )
 
-    # --- Heartbeat Endpoint ---
     @app.post("/heartbeat")
     async def heartbeat(request: Request):
-        """Receives heartbeat pings from the frontend."""
         global last_heartbeat_time
         try:
-            # Update the last heartbeat time using timezone-aware datetime
             last_heartbeat_time = datetime.datetime.now(datetime.timezone.utc)
-            # Log received heartbeat and payload for debugging
             payload = await request.json()
             logger.debug(
                 f"Heartbeat received at {last_heartbeat_time}. Payload: {payload}"
             )
             return {"status": "ok"}
         except json.JSONDecodeError:
-            # Handle cases where the body might not be valid JSON (e.g., empty from sendBeacon)
             last_heartbeat_time = datetime.datetime.now(datetime.timezone.utc)
             logger.debug(
                 f"Heartbeat received at {last_heartbeat_time} (no valid JSON payload)."
@@ -1057,11 +1260,8 @@ def register_endpoints(app: FastAPI, stream: Stream):
             logger.error(f"Error processing heartbeat: {e}")
             return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
-    # --- Endpoint to Reset Chat Log Timestamp ---
     @app.post("/reset_chat_log")
     async def reset_chat_log():
-        """Resets the timestamp used for the chat log filename."""
-        # Modify settings.startup_timestamp_str
         try:
             new_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             settings.startup_timestamp_str = new_timestamp
@@ -1076,27 +1276,16 @@ def register_endpoints(app: FastAPI, stream: Stream):
                 status_code=500,
             )
 
-    # --- End Reset Chat Log Endpoint ---
-
-    # --- Endpoint to Serve TTS Audio Files ---
     @app.get("/tts_audio/{run_timestamp}/{filename}")
     async def get_tts_audio(run_timestamp: str, filename: str):
-        """Serves a specific TTS audio file from the cache."""
         if not settings.tts_audio_dir:
              logger.error("settings.tts_audio_dir not configured, cannot serve audio.")
              raise HTTPException(status_code=500, detail="Server configuration error")
 
-        # Basic security check: Ensure filename looks safe (e.g., no path traversal)
-        # A more robust check might involve ensuring it matches the expected UUID format.
         if ".." in filename or "/" in filename or "\\" in filename:
             logger.warning(f"Attempt to access potentially unsafe filename: {filename}")
             raise HTTPException(status_code=400, detail="Invalid filename")
-
-        # Construct the expected path based on the *current run's* TTS_AUDIO_DIR
-        # We ignore the run_timestamp from the URL path for security, always serving from the current run's dir.
-        # This prevents accessing audio from previous runs.
-        # If access to previous runs is needed, the logic here would need to change significantly
-        # and potentially involve searching through subdirectories based on the timestamp, using settings.tts_base_dir.
+        
         file_path = settings.tts_audio_dir / filename
         logger.debug(f"Attempting to serve TTS audio file: {file_path} (URL timestamp '{run_timestamp}' ignored for security)")
 
@@ -1105,8 +1294,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
         else:
             logger.warning(f"TTS audio file not found: {file_path}")
             raise HTTPException(status_code=404, detail="Audio file not found")
-    # --- End TTS Audio Endpoint ---
-
 
 # --- Pywebview API Class ---
 class Api:
@@ -1114,32 +1301,12 @@ class Api:
         self._window = window
 
     def close(self):
-        """Close the pywebview window."""
         logger.info("API close method called.")
         if self._window:
             self._window.destroy()
 
-
-# --- Heartbeat Globals ---
-# These are already defined at the top of the file.
-# last_heartbeat_time: datetime.datetime | None = None
-# heartbeat_timeout: int = 15  # Seconds before assuming client disconnected
-# shutdown_event = threading.Event()  # Used to signal monitor thread to stop
-# pywebview_window = None  # To hold the pywebview window object if created
-# --- End Heartbeat Globals ---
-
-# Global variable to hold the Uvicorn server instance
-# This is already defined at the top of the file.
-# uvicorn_server = None
-
-# Global variable to hold parsed args (needed by response and endpoints)
-# This will be removed. Settings object will be used instead.
-# args: Optional[argparse.Namespace] = None # REMOVED
-
-
 # --- Heartbeat Monitoring Thread ---
 def monitor_heartbeat_thread():
-    """Monitors the time since the last heartbeat and triggers shutdown if timeout occurs."""
     global last_heartbeat_time, uvicorn_server, pywebview_window, shutdown_event
     logger.info("Heartbeat monitor thread started.")
     initial_wait_done = False
@@ -1150,21 +1317,18 @@ def monitor_heartbeat_thread():
                 logger.info(
                     f"Waiting for the first heartbeat (timeout check in {heartbeat_timeout * 2}s)..."
                 )
-                # Wait longer initially before the first check
                 shutdown_event.wait(heartbeat_timeout * 2)
                 initial_wait_done = True
                 if shutdown_event.is_set():
-                    break  # Exit if shutdown requested during initial wait
-                continue  # Re-check condition after initial wait
+                    break 
+                continue 
             else:
-                # If still None after initial wait, maybe log periodically?
                 logger.debug("Still waiting for first heartbeat...")
-                shutdown_event.wait(5)  # Check every 5 seconds after initial wait
+                shutdown_event.wait(5) 
                 if shutdown_event.is_set():
                     break
                 continue
 
-        # Calculate time since last heartbeat
         time_since_last = (
             datetime.datetime.now(datetime.timezone.utc) - last_heartbeat_time
         )
@@ -1176,7 +1340,6 @@ def monitor_heartbeat_thread():
             logger.warning(
                 f"Heartbeat timeout ({heartbeat_timeout}s exceeded). Initiating shutdown."
             )
-            # 1. Signal Uvicorn server to shut down
             if uvicorn_server:
                 logger.info("Signaling Uvicorn server to stop...")
                 uvicorn_server.should_exit = True
@@ -1185,25 +1348,16 @@ def monitor_heartbeat_thread():
                     "Uvicorn server instance not found, cannot signal shutdown."
                 )
 
-            # 2. If in pywebview mode, destroy the window to unblock the main thread
             if pywebview_window:
                 logger.info("Destroying pywebview window...")
                 try:
-                    # Schedule the destroy call on the main GUI thread if necessary
-                    # For simplicity, try direct call first, might work depending on pywebview version/OS
                     pywebview_window.destroy()
                 except Exception as e:
                     logger.error(
                         f"Error destroying pywebview window from monitor thread: {e}"
                     )
-                    # Fallback: Try to signal main thread differently if needed, or rely on Uvicorn shutdown
-
-            # 3. Exit the monitor thread
             break
-
-        # Wait for a short interval before checking again
-        shutdown_event.wait(5)  # Check every 5 seconds
-
+        shutdown_event.wait(5)
     logger.info("Heartbeat monitor thread finished.")
 
 
@@ -1219,8 +1373,8 @@ def monitor_heartbeat_thread():
     "--port",
     type=click.INT,
     envvar="APP_PORT",
-    default=int(APP_PORT_ENV), # Resolved default from env.py or actual env
-    show_default=True, # Shows the resolved default
+    default=int(APP_PORT_ENV), 
+    show_default=True, 
     help="Preferred port to run the FastAPI server on. (Env: APP_PORT)",
 )
 @click.option(
@@ -1242,15 +1396,30 @@ def monitor_heartbeat_thread():
     "--system-message",
     type=str,
     envvar="SYSTEM_MESSAGE",
-    default=SYSTEM_MESSAGE_ENV, # Can be None or empty string
+    default=SYSTEM_MESSAGE_ENV, 
     show_default=True,
     help="System message to prepend to the chat history. (Env: SYSTEM_MESSAGE)",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(["classic", "openai"], case_sensitive=False),
+    default="classic",
+    show_default=True,
+    help="Backend to use for voice processing. 'classic' uses separate STT/LLM/TTS. 'openai' uses OpenAI's realtime voice API.",
+)
+@click.option(
+    "--openai-realtime-model",
+    type=str,
+    envvar="OPENAI_REALTIME_MODEL", 
+    default="gpt-4o-mini-realtime-preview-2024-12-17", 
+    show_default=True,
+    help="OpenAI realtime API model to use (if --backend=openai). (Env: OPENAI_REALTIME_MODEL)",
 )
 @click.option(
     "--llm-host",
     type=str,
     envvar="LLM_HOST",
-    default=LLM_HOST_ENV, # Can be None
+    default=LLM_HOST_ENV, 
     show_default=True,
     help="Host address of the LLM proxy server (optional). (Env: LLM_HOST)",
 )
@@ -1258,7 +1427,7 @@ def monitor_heartbeat_thread():
     "--llm-port",
     type=str, 
     envvar="LLM_PORT",
-    default=LLM_PORT_ENV, # Can be None
+    default=LLM_PORT_ENV, 
     show_default=True,
     help="Port of the LLM proxy server (optional). (Env: LLM_PORT)",
 )
@@ -1274,7 +1443,7 @@ def monitor_heartbeat_thread():
     "--llm-api-key",
     type=str,
     envvar="LLM_API_KEY",
-    default=LLM_API_KEY_ENV, # Can be None
+    default=LLM_API_KEY_ENV, 
     show_default=True,
     help="API key for the LLM provider/proxy (optional, depends on setup). (Env: LLM_API_KEY)",
 )
@@ -1306,7 +1475,7 @@ def monitor_heartbeat_thread():
     "--stt-language",
     type=str,
     envvar="STT_LANGUAGE",
-    default=STT_LANGUAGE_ENV, # Can be None or empty string
+    default=STT_LANGUAGE_ENV, 
     show_default=True,
     help="Language code for STT (e.g., 'en', 'fr'). If unset, Whisper usually auto-detects. (Env: STT_LANGUAGE)",
 )
@@ -1314,7 +1483,7 @@ def monitor_heartbeat_thread():
     "--stt-api-key",
     type=str,
     envvar="STT_API_KEY",
-    default=STT_API_KEY_ENV, # Can be None
+    default=STT_API_KEY_ENV, 
     show_default=True,
     help="API key for the STT server (REQUIRED for OpenAI STT). (Env: STT_API_KEY)",
 )
@@ -1378,7 +1547,7 @@ def monitor_heartbeat_thread():
     "--tts-api-key",
     type=str,
     envvar="TTS_API_KEY",
-    default=TTS_API_KEY_ENV, # Can be None
+    default=TTS_API_KEY_ENV, 
     show_default=True,
     help="API key for the TTS server (REQUIRED for OpenAI TTS). (Env: TTS_API_KEY)",
 )
@@ -1394,7 +1563,7 @@ def monitor_heartbeat_thread():
     "--tts-acronym-preserve-list",
     type=str,
     envvar="TTS_ACRONYM_PRESERVE_LIST",
-    default=TTS_ACRONYM_PRESERVE_LIST_ENV, # Can be empty string
+    default=TTS_ACRONYM_PRESERVE_LIST_ENV, 
     show_default=True,
     help=f"Comma-separated list of acronyms to preserve during TTS (Kokoro TTS). (Env: TTS_ACRONYM_PRESERVE_LIST)",
 )
@@ -1404,6 +1573,8 @@ def main(
     verbose: bool,
     browser: bool,
     system_message: Optional[str],
+    backend: str, 
+    openai_realtime_model: str,
     llm_host: Optional[str],
     llm_port: Optional[str],
     llm_model: str,
@@ -1424,27 +1595,21 @@ def main(
     tts_speed: float,
     tts_acronym_preserve_list: str,
 ) -> int:
-    """Main function to parse arguments, set up, and run the application."""
-    # Access global runtime state variables (not config)
     global uvicorn_server, pywebview_window
 
-    # --- Record Startup Time ---
     startup_time = datetime.datetime.now()
     startup_timestamp_str_local = startup_time.strftime("%Y%m%d_%H%M%S")
 
-    # --- Argument Parsing is now handled by Click decorators ---
-
-    # --- Apply Argument Values to Global Configuration ---
     settings.startup_timestamp_str = startup_timestamp_str_local
+    settings.backend = backend
+    settings.openai_realtime_model_arg = openai_realtime_model
 
-    # General
     settings.preferred_port = port
     settings.host = host
     settings.verbose = verbose
     settings.browser = browser
     settings.system_message = system_message.strip() if system_message is not None else ""
 
-    # LLM Configuration
     settings.llm_host_arg = llm_host
     settings.llm_port_arg = llm_port
     settings.llm_model_arg = llm_model
@@ -1453,7 +1618,7 @@ def main(
     settings.use_llm_proxy = bool(settings.llm_host_arg and settings.llm_port_arg)
     if settings.use_llm_proxy:
         try:
-            llm_port_int = int(settings.llm_port_arg)
+            llm_port_int = int(settings.llm_port_arg) # type: ignore
             settings.llm_api_base = f"http://{settings.llm_host_arg}:{llm_port_int}/v1"
         except (ValueError, TypeError):
             print(
@@ -1464,7 +1629,6 @@ def main(
     else:
         settings.llm_api_base = None
 
-    # STT Configuration
     settings.stt_host_arg = stt_host
     settings.stt_port_arg = stt_port
     settings.stt_model_arg = stt_model
@@ -1477,20 +1641,20 @@ def main(
     settings.is_openai_stt = settings.stt_host_arg == "api.openai.com"
     if settings.is_openai_stt:
         settings.stt_api_base = "https://api.openai.com/v1"
-        if not settings.stt_api_key:
+        if not settings.stt_api_key and settings.backend == "classic": # API key check more relevant for classic
             print(
-                "Critical Error: STT_API_KEY is required when using OpenAI STT (stt-host=api.openai.com). "
+                "Critical Error: STT_API_KEY is required when using OpenAI STT (stt-host=api.openai.com) with classic backend. "
                 "Set the STT_API_KEY environment variable or provide --stt-api-key argument. Exiting.", file=sys.stderr
             )
             return 1
-    else:
+    else: # Custom STT
         try:
             stt_port_int = int(settings.stt_port_arg)
             scheme = "http"
             settings.stt_api_base = f"{scheme}://{settings.stt_host_arg}:{stt_port_int}/v1"
-            if not settings.stt_api_key:
+            if not settings.stt_api_key and settings.backend == "classic":
                 print(
-                    f"Warning: No STT API key provided for custom server at {settings.stt_api_base}. Assuming it's not needed.", file=sys.stderr
+                    f"Warning: No STT API key provided for custom server at {settings.stt_api_base} with classic backend. Assuming it's not needed.", file=sys.stderr
                 )
         except (ValueError, TypeError):
             print(
@@ -1498,7 +1662,6 @@ def main(
             )
             return 1
 
-    # TTS Configuration
     settings.tts_host_arg = tts_host
     settings.tts_port_arg = tts_port
     settings.tts_model_arg = tts_model
@@ -1510,20 +1673,20 @@ def main(
     settings.is_openai_tts = settings.tts_host_arg == "api.openai.com"
     if settings.is_openai_tts:
         settings.tts_base_url = "https://api.openai.com/v1"
-        if not settings.tts_api_key:
+        if not settings.tts_api_key and settings.backend == "classic":
             print(
-                "Critical Error: TTS_API_KEY is required when using OpenAI TTS (tts-host=api.openai.com). "
+                "Critical Error: TTS_API_KEY is required when using OpenAI TTS (tts-host=api.openai.com) with classic backend. "
                 "Set the TTS_API_KEY environment variable or provide --tts-api-key argument. Exiting.", file=sys.stderr
             )
             return 1
-    else:
+    else: # Custom TTS
         try:
             tts_port_int = int(settings.tts_port_arg)
             scheme = "http"
             settings.tts_base_url = f"{scheme}://{settings.tts_host_arg}:{tts_port_int}/v1"
-            if not settings.tts_api_key:
+            if not settings.tts_api_key and settings.backend == "classic":
                 print(
-                    f"Warning: No TTS API key provided for custom server at {settings.tts_base_url}. Assuming it's not needed.", file=sys.stderr
+                    f"Warning: No TTS API key provided for custom server at {settings.tts_base_url} with classic backend. Assuming it's not needed.", file=sys.stderr
                 )
         except (ValueError, TypeError):
             print(
@@ -1538,17 +1701,13 @@ def main(
     }
     settings.current_tts_speed = settings.tts_speed_arg
 
-    # --- Logging Configuration using external setup function ---
     console_log_level_str = "DEBUG" if settings.verbose else "INFO"
-    
     log_file_path_for_setup: Optional[Path] = None
     log_dir_creation_error_details: Optional[str] = None 
-
     try:
         app_name = "SimpleVoiceChat"
         app_author = "Attila"
         log_base_dir_path_str: Optional[str] = None
-
         try:
             log_base_dir_path_str = platformdirs.user_log_dir(app_name, app_author)
         except Exception as e_log_dir:
@@ -1573,15 +1732,20 @@ def main(
         print(f"Error: {log_dir_creation_error_details} File logging will be disabled.", file=sys.stderr)
 
     setup_logging(console_log_level_str, log_file_path_for_setup, settings.verbose)
-
     if log_dir_creation_error_details:
         logger.error(f"Log directory setup failed: {log_dir_creation_error_details} File logging is disabled.")
 
+    logger.info(f"Using backend: {settings.backend}")
+    if settings.backend == "openai":
+        logger.info(f"OpenAI Realtime Model: {settings.openai_realtime_model_arg}")
+        if not settings.llm_api_key: # This is the OpenAI API key for this backend
+            logger.critical("OpenAI API key (--llm-api-key or LLM_API_KEY env) is required for 'openai' backend. Exiting.")
+            return 1
+    
     logger.debug(
         f"Loaded TTS_ACRONYM_PRESERVE_SET: {settings.tts_acronym_preserve_set}"
     )
 
-    # --- Setup Chat Log Directory ---
     try:
         app_name = "SimpleVoiceChat"
         app_author = "Attila"
@@ -1593,7 +1757,6 @@ def main(
         logger.error(f"Failed to create chat log directory: {e}. Chat logging disabled.")
         settings.chat_log_dir = None
 
-    # --- Setup Temporary TTS Audio Directory ---
     try:
         app_name = "SimpleVoiceChat"
         app_author = "Attila"
@@ -1615,217 +1778,198 @@ def main(
         logger.error(f"Failed to create temporary TTS audio directory: {e}. TTS audio saving might fail.")
         return 1
 
-    # --- Log Final Configuration ---
     logger.info(f"Logging level set to: {console_log_level_str}")
     logger.info(f"Application Version: {APP_VERSION}")
     logger.info(f"Application server host: {settings.host}")
     logger.info(
         f"Application server preferred port: {settings.preferred_port}"
     )
-    if settings.use_llm_proxy:
-        logger.info(f"Using LLM proxy at: {settings.llm_api_base}")
-        if settings.llm_api_key:
-            logger.info("Using LLM API key provided.")
+
+    if settings.backend == "classic":
+        if settings.use_llm_proxy:
+            logger.info(f"Using LLM proxy at: {settings.llm_api_base}")
+            if settings.llm_api_key:
+                logger.info("Using LLM API key provided.")
+            else:
+                logger.info("No LLM API key provided.")
         else:
-            logger.info("No LLM API key provided.")
-    else:
+            logger.info("Not using LLM proxy (using default LLM routing).")
+            if settings.llm_api_key:
+                logger.info("Using LLM API key provided (for direct routing).")
+
+        if settings.is_openai_stt:
+            logger.info(f"Using OpenAI STT at: {settings.stt_api_base}")
+            logger.info(f"Using STT model: {settings.stt_model_arg}")
+            logger.info("Using STT API key provided (Required for OpenAI).")
+        else:
+            logger.info(f"Using Custom STT server at: {settings.stt_api_base}")
+            logger.info(f"Using STT model: {settings.stt_model_arg}")
+            if settings.stt_api_key:
+                logger.info("Using STT API key provided.")
+            else:
+                logger.info("No STT API key provided (assumed optional for custom server).")
+        
         logger.info(
-            "Not using LLM proxy (using default LLM routing)."
+            f"STT Confidence Thresholds: no_speech_prob > {settings.stt_no_speech_prob_threshold}, avg_logprob < {settings.stt_avg_logprob_threshold}, min_words < {settings.stt_min_words_threshold}"
         )
-        if settings.llm_api_key:
-            logger.info(
-                "Using LLM API key provided (for direct routing)."
-            )
 
-    if settings.is_openai_stt:
-        logger.info(f"Using OpenAI STT at: {settings.stt_api_base}")
-        logger.info(f"Using STT model: {settings.stt_model_arg}")
-        logger.info("Using STT API key provided (Required for OpenAI).")
-    else:
-        logger.info(f"Using Custom STT server at: {settings.stt_api_base}")
-        logger.info(f"Using STT model: {settings.stt_model_arg}")
-        if settings.stt_api_key:
-            logger.info("Using STT API key provided.")
+        if settings.is_openai_tts:
+            logger.info(f"Using OpenAI TTS at: {settings.tts_base_url}")
+            logger.info(f"Using TTS model: {settings.tts_model_arg}")
+            logger.info(f"Default TTS voice: {settings.tts_voice_arg}")
+            logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}")
+            logger.info("Using TTS API key provided (Required for OpenAI).")
+            if settings.tts_model_arg in OPENAI_TTS_PRICING:
+                logger.info(
+                    f"OpenAI TTS pricing for '{settings.tts_model_arg}': ${OPENAI_TTS_PRICING[settings.tts_model_arg]:.2f} / 1M chars"
+                )
+            else:
+                logger.warning(
+                    f"OpenAI TTS pricing not defined for model '{settings.tts_model_arg}'. Cost calculation will be $0."
+                )
         else:
-            logger.info("No STT API key provided (assumed optional for custom server).")
+            logger.info(f"Using Custom TTS server at: {settings.tts_base_url}")
+            logger.info(f"Using TTS model: {settings.tts_model_arg}")
+            logger.info(f"Default TTS voice: {settings.tts_voice_arg}")
+            logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}")
+            if settings.tts_api_key:
+                logger.info("Using TTS API key provided.")
+            else:
+                logger.info("No TTS API key provided (assumed optional for custom server).")
+        logger.debug(f"Loaded TTS_ACRONYM_PRESERVE_SET: {settings.tts_acronym_preserve_set}")
 
+    # STT language is relevant for both backends
     if settings.stt_language_arg:
         logger.info(f"Using STT language: {settings.stt_language_arg}")
         settings.current_stt_language = settings.stt_language_arg
     else:
-        logger.info("No STT language specified (or empty), Whisper will auto-detect.")
+        logger.info("No STT language specified (or empty), STT will auto-detect.")
         settings.current_stt_language = None
-    logger.info(
-        f"STT Confidence Thresholds: no_speech_prob > {settings.stt_no_speech_prob_threshold}, avg_logprob < {settings.stt_avg_logprob_threshold}, min_words < {settings.stt_min_words_threshold}"
-    )
 
-    if settings.is_openai_tts:
-        logger.info(f"Using OpenAI TTS at: {settings.tts_base_url}")
-        logger.info(f"Using TTS model: {settings.tts_model_arg}")
-        logger.info(f"Default TTS voice: {settings.tts_voice_arg}")
-        logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}")
-        logger.info("Using TTS API key provided (Required for OpenAI).")
-        if settings.tts_model_arg in OPENAI_TTS_PRICING:
-            logger.info(
-                f"OpenAI TTS pricing for '{settings.tts_model_arg}': ${OPENAI_TTS_PRICING[settings.tts_model_arg]:.2f} / 1M chars"
-            )
-        else:
-            logger.warning(
-                f"OpenAI TTS pricing not defined for model '{settings.tts_model_arg}'. Cost calculation will be $0."
-            )
-    else:
-        logger.info(f"Using Custom TTS server at: {settings.tts_base_url}")
-        logger.info(f"Using TTS model: {settings.tts_model_arg}")
-        logger.info(f"Default TTS voice: {settings.tts_voice_arg}")
-        logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}")
-        if settings.tts_api_key:
-            logger.info("Using TTS API key provided.")
-        else:
-            logger.info("No TTS API key provided (assumed optional for custom server).")
-    logger.debug(f"Loaded TTS_ACRONYM_PRESERVE_SET: {settings.tts_acronym_preserve_set}")
 
     if settings.system_message:
         logger.info(f"Loaded SYSTEM_MESSAGE: '{settings.system_message[:50]}...'")
     else:
         logger.info("No SYSTEM_MESSAGE defined.")
 
-    # --- Populate Models and Costs ---
-    if settings.use_llm_proxy:
-        settings.available_models, settings.model_cost_data = get_models_and_costs_from_proxy(
-            settings.llm_api_base, settings.llm_api_key
-        )
-    else:
-        settings.available_models, settings.model_cost_data = get_models_and_costs_from_litellm()
-
-    if not settings.available_models:
-        logger.warning(
-            "No models found from proxy or litellm.model_cost. Using fallback."
-        )
-        settings.available_models = ["fallback/unknown-model"]
-
-    initial_model_preference = settings.llm_model_arg
-    if initial_model_preference and initial_model_preference in settings.available_models:
-        settings.current_llm_model = initial_model_preference
-        logger.info(
-            f"Using LLM model from --llm-model argument (or env default): {settings.current_llm_model}"
-        )
-    elif settings.available_models and settings.available_models[0] != "fallback/unknown-model":
-        if initial_model_preference:
-            logger.warning(
-                f"LLM model '{initial_model_preference}' from --llm-model (or env default) not found in available list {settings.available_models}. Trying first available model."
-            )
-        settings.current_llm_model = settings.available_models[0]
-        logger.info(f"Using first available model: {settings.current_llm_model}")
-    elif initial_model_preference:
-        settings.current_llm_model = initial_model_preference
-        logger.warning(
-            f"Model '{settings.current_llm_model}' from --llm-model (or env default) not found in available list, but using it as requested. Cost calculation might fail."
-        )
-    else:
-        settings.current_llm_model = "fallback/unknown-model"
-        logger.error(
-            "No valid LLM models available or specified. Functionality may be impaired."
-        )
-
-    logger.info(f"Initial LLM model set to: {settings.current_llm_model}")
-
-    # --- Client Initialization ---
-    try:
-        settings.tts_client = OpenAI(
-            base_url=settings.tts_base_url,
-            api_key=settings.tts_api_key,
-        )
-        if settings.is_openai_tts:
-            try:
-                logger.info(
-                    "OpenAI TTS client initialized. API key will be validated on first use."
-                )
-            except AuthenticationError as e:
-                logger.critical(
-                    f"OpenAI API key is invalid: {e}. Please check TTS_API_KEY. Exiting."
-                )
-                return 1
-            except Exception as e:
-                logger.warning(
-                    f"Could not perform initial validation of OpenAI API key: {e}"
-                )
-    except Exception as e:
-        logger.critical(f"Failed to initialize TTS client: {e}. Exiting.")
-        return 1
-
-    try:
-        settings.stt_client = OpenAI(
-            base_url=settings.stt_api_base,
-            api_key=settings.stt_api_key,
-        )
-        if settings.is_openai_stt:
-            try:
-                logger.info(
-                    "OpenAI STT client initialized. API key will be validated on first use."
-                )
-            except AuthenticationError as e:
-                logger.critical(
-                    f"OpenAI API key is invalid: {e}. Please check STT_API_KEY. Exiting."
-                )
-                return 1
-            except Exception as e:
-                logger.warning(
-                    f"Could not perform initial validation of OpenAI API key: {e}"
-                )
-    except Exception as e:
-        logger.critical(f"Failed to initialize STT client: {e}. Exiting.")
-        return 1
-
-    # --- Populate Available Voices (Revised Logic) ---
-    if settings.is_openai_tts:
-        settings.available_voices_tts = OPENAI_TTS_VOICES
-        logger.info(f"Using predefined OpenAI TTS voices: {settings.available_voices_tts}")
-    else:
-        logger.info(
-            f"Querying custom TTS server ({settings.tts_base_url}) for available voices..."
-        )
-        settings.available_voices_tts = get_voices(settings.tts_base_url, settings.tts_api_key)
-        if not settings.available_voices_tts:
-            logger.warning(
-                f"Could not retrieve voices from custom TTS server at {settings.tts_base_url}. TTS might fail."
+    if settings.backend == "classic":
+        if settings.use_llm_proxy:
+            settings.available_models, settings.model_cost_data = get_models_and_costs_from_proxy(
+                settings.llm_api_base, settings.llm_api_key # type: ignore
             )
         else:
-            logger.info(
-                f"Available voices from custom TTS server: {settings.available_voices_tts}"
-            )
+            settings.available_models, settings.model_cost_data = get_models_and_costs_from_litellm()
 
-    initial_voice_preference = settings.tts_voice_arg
-    if initial_voice_preference and initial_voice_preference in settings.available_voices_tts:
-        settings.current_tts_voice = initial_voice_preference
-        logger.info(
-            f"Using TTS voice from --tts-voice argument (or env default): {settings.current_tts_voice}"
-        )
-    elif settings.available_voices_tts:
-        if initial_voice_preference:
-            logger.warning(
-                f"TTS voice '{initial_voice_preference}' from --tts-voice (or env default) not found in available voices: {settings.available_voices_tts}. Trying first available voice."
+        if not settings.available_models:
+            logger.warning("No models found from proxy or litellm.model_cost. Using fallback.")
+            settings.available_models = ["fallback/unknown-model"]
+
+        initial_model_preference = settings.llm_model_arg
+        if initial_model_preference and initial_model_preference in settings.available_models:
+            settings.current_llm_model = initial_model_preference
+            logger.info(f"Using LLM model from --llm-model argument (or env default): {settings.current_llm_model}")
+        elif settings.available_models and settings.available_models[0] != "fallback/unknown-model":
+            if initial_model_preference:
+                logger.warning(f"LLM model '{initial_model_preference}' from --llm-model (or env default) not found in available list {settings.available_models}. Trying first available model.")
+            settings.current_llm_model = settings.available_models[0]
+            logger.info(f"Using first available model: {settings.current_llm_model}")
+        elif initial_model_preference:
+            settings.current_llm_model = initial_model_preference
+            logger.warning(f"Model '{settings.current_llm_model}' from --llm-model (or env default) not found in available list, but using it as requested. Cost calculation might fail.")
+        else:
+            settings.current_llm_model = "fallback/unknown-model"
+            logger.error("No valid LLM models available or specified. Functionality may be impaired.")
+        logger.info(f"Initial LLM model set to: {settings.current_llm_model}")
+
+    elif settings.backend == "openai":
+        # For OpenAI backend, the model is set by openai_realtime_model_arg
+        settings.current_llm_model = settings.openai_realtime_model_arg # Use this for consistency if needed elsewhere
+        settings.available_models = [settings.openai_realtime_model_arg]
+        logger.info(f"OpenAI backend: Using realtime model: {settings.current_llm_model}")
+        # Cost data is not applicable in the same way for OpenAI realtime via this app's calculation
+        settings.model_cost_data = {}
+
+
+    if settings.backend == "classic":
+        logger.info("Initializing clients for 'classic' backend...")
+        try:
+            settings.tts_client = OpenAI(
+                base_url=settings.tts_base_url,
+                api_key=settings.tts_api_key,
             )
-        settings.current_tts_voice = settings.available_voices_tts[0]
-        logger.info(f"Using first available voice instead: {settings.current_tts_voice}")
-    else:
-        settings.current_tts_voice = initial_voice_preference
-        logger.error(
-            f"No voices available from TTS engine, or specified voice '{settings.current_tts_voice}' is invalid. TTS will likely fail."
-        )
-        if settings.is_openai_tts and settings.current_tts_voice not in OPENAI_TTS_VOICES:
-            logger.critical(
-                f"Specified OpenAI voice '{settings.current_tts_voice}' is not valid. Valid options: {OPENAI_TTS_VOICES}. Exiting."
-            )
+            if settings.is_openai_tts:
+                try:
+                    logger.info("OpenAI TTS client initialized. API key will be validated on first use.")
+                except AuthenticationError as e: # This specific check might not be hit here
+                    logger.critical(f"OpenAI API key is invalid: {e}. Please check TTS_API_KEY. Exiting.")
+                    return 1
+                except Exception as e:
+                    logger.warning(f"Could not perform initial validation of OpenAI API key: {e}")
+        except Exception as e:
+            logger.critical(f"Failed to initialize TTS client for classic backend: {e}. Exiting.")
             return 1
 
-    logger.info(f"Initial TTS voice set to: {settings.current_tts_voice}")
+        try:
+            settings.stt_client = OpenAI(
+                base_url=settings.stt_api_base,
+                api_key=settings.stt_api_key,
+            )
+            if settings.is_openai_stt:
+                try:
+                    logger.info("OpenAI STT client initialized. API key will be validated on first use.")
+                except AuthenticationError as e: # This specific check might not be hit here
+                    logger.critical(f"OpenAI API key is invalid: {e}. Please check STT_API_KEY. Exiting.")
+                    return 1
+                except Exception as e:
+                    logger.warning(f"Could not perform initial validation of OpenAI API key: {e}")
+        except Exception as e:
+            logger.critical(f"Failed to initialize STT client for classic backend: {e}. Exiting.")
+            return 1
+        
+        if settings.is_openai_tts:
+            settings.available_voices_tts = OPENAI_TTS_VOICES
+            logger.info(f"Using predefined OpenAI TTS voices: {settings.available_voices_tts}")
+        else:
+            logger.info(f"Querying custom TTS server ({settings.tts_base_url}) for available voices...")
+            settings.available_voices_tts = get_voices(settings.tts_base_url, settings.tts_api_key) # type: ignore
+            if not settings.available_voices_tts:
+                logger.warning(f"Could not retrieve voices from custom TTS server at {settings.tts_base_url}. TTS might fail.")
+            else:
+                logger.info(f"Available voices from custom TTS server: {settings.available_voices_tts}")
 
-    # --- FastAPI Setup ---
-    stream = Stream(
-        modality="audio",
-        mode="send-receive",
-        handler=ReplyOnPause(
-            response,
+        initial_voice_preference = settings.tts_voice_arg
+        if initial_voice_preference and initial_voice_preference in settings.available_voices_tts:
+            settings.current_tts_voice = initial_voice_preference
+            logger.info(f"Using TTS voice from --tts-voice argument (or env default): {settings.current_tts_voice}")
+        elif settings.available_voices_tts:
+            if initial_voice_preference:
+                logger.warning(f"TTS voice '{initial_voice_preference}' from --tts-voice (or env default) not found in available voices: {settings.available_voices_tts}. Trying first available voice.")
+            settings.current_tts_voice = settings.available_voices_tts[0]
+            logger.info(f"Using first available voice instead: {settings.current_tts_voice}")
+        else:
+            settings.current_tts_voice = initial_voice_preference
+            logger.error(f"No voices available from TTS engine, or specified voice '{settings.current_tts_voice}' is invalid. TTS will likely fail.")
+            if settings.is_openai_tts and settings.current_tts_voice not in OPENAI_TTS_VOICES:
+                logger.critical(f"Specified OpenAI voice '{settings.current_tts_voice}' is not valid. Valid options: {OPENAI_TTS_VOICES}. Exiting.")
+                return 1
+        logger.info(f"Initial TTS voice set to: {settings.current_tts_voice}")
+
+    elif settings.backend == "openai":
+        logger.info("OpenAI backend selected. STT/TTS clients and voice selection handled by OpenAIRealtimeHandler.")
+        settings.available_voices_tts = [] 
+        settings.current_tts_voice = None
+        # STT language is already set in settings.current_stt_language
+        logger.info(f"STT language for OpenAI Realtime: {settings.current_stt_language or 'auto-detect'}")
+
+
+    stream_handler: Any 
+    if settings.backend == "openai":
+        logger.info("Initializing Stream with OpenAIRealtimeHandler.")
+        stream_handler = OpenAIRealtimeHandler(app_settings=settings)
+    else: 
+        logger.info("Initializing Stream with ReplyOnPause handler for classic backend.")
+        stream_handler = ReplyOnPause(
+            response, 
             algo_options=AlgoOptions(
                 audio_chunk_duration=3.0,
                 started_talking_threshold=0.2,
@@ -1837,26 +1981,29 @@ def main(
                 min_silence_duration_ms=3500,
             ),
             can_interrupt=True,
-        ),
+        )
+
+    stream = Stream(
+        modality="audio",
+        mode="send-receive",
+        handler=stream_handler,
         track_constraints={
             "echoCancellation": True,
-            "noiseSuppression": {"exact": True},
-            "autoGainControl": {"exact": True},
-            "sampleRate": {"ideal": 24000},
+            "noiseSuppression": {"exact": True}, 
+            "autoGainControl": {"exact": True},  
+            "sampleRate": {"ideal": OPENAI_REALTIME_SAMPLE_RATE}, 
             "sampleSize": {"ideal": 16},
             "channelCount": {"exact": 1},
         },
         rtc_configuration=get_twilio_turn_credentials() if get_space() else None,
         concurrency_limit=5 if get_space() else None,
-        time_limit=90 if get_space() else None,
+        time_limit=180 if get_space() else None, 
     )
 
     app = FastAPI()
     stream.mount(app)
     register_endpoints(app, stream)
 
-    # --- Server and UI Launch ---
-    # Use host and port from settings (which came from click parameters)
     current_host = settings.host 
     preferred_port_val = settings.preferred_port
     actual_port = preferred_port_val
@@ -1883,7 +2030,7 @@ def main(
     else:
         logger.info(f"Using preferred port {actual_port} on host {current_host}")
 
-    settings.port = actual_port # Update settings with the actual port being used
+    settings.port = actual_port 
     url = f"http://{current_host}:{actual_port}"
 
     def run_server():
@@ -1891,8 +2038,8 @@ def main(
         try:
             config = uvicorn.Config(
                 app,
-                host=current_host, # Use determined host
-                port=actual_port,   # Use determined port
+                host=current_host, 
+                port=actual_port,   
                 log_config=None,
             )
             uvicorn_server = uvicorn.Server(config)

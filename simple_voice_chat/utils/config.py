@@ -7,6 +7,7 @@ from openai import OpenAI # For client type hints
 # --- Application Constants ---
 APP_VERSION = "3.4.0"
 OPENAI_TTS_PRICING = {
+    # price per 1M token
     "tts-1": 15.00,
     "tts-1-hd": 30.00,
 }

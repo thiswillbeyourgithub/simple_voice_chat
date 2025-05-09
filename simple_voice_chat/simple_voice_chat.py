@@ -860,17 +860,30 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
 
 
                     elif event.type == "error":
-                        logger.error(f"OpenAI Realtime API Error: {event.message}")
+                        error_code = "N/A"
+                        error_message_text = "Unknown error from OpenAI Realtime API."
+                        if hasattr(event, 'error') and event.error:
+                            if hasattr(event.error, 'code'):
+                                error_code = event.error.code
+                            if hasattr(event.error, 'message'):
+                                error_message_text = event.error.message
+                        else:
+                            # Fallback if event.error structure is not as expected or missing
+                            error_message_text = str(event) # Convert the event to string as a last resort
+
+                        full_error_details = f"Code: {error_code}, Message: {error_message_text}"
+                        logger.error(f"OpenAI Realtime API Error: {full_error_details}")
+                        
                         await self.output_queue.put(
                             AdditionalOutputs(
                                 {
                                     "type": "status_update",
                                     "status": "error",
-                                    "message": f"OpenAI Error: {event.message}",
+                                    "message": f"OpenAI Error: {error_message_text}", # UI gets the message part
                                 }
                             )
                         )
-                        error_chat_message = ChatMessage(role="assistant", content=f"[OpenAI Error: {event.message}]")
+                        error_chat_message = ChatMessage(role="assistant", content=f"[OpenAI Error: {error_message_text}]")
                         await self.output_queue.put(
                             AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()})
                         )

@@ -1161,9 +1161,9 @@
             // For OpenAI backend, modelInput might list only realtime models or be simplified.
             // `allModelOptions` is populated by `fetchAndPopulateModels` which gets backend-specific models.
             modelInput.disabled = !isConnected || (currentBackend === 'openai' && (!allModelOptions || allModelOptions.length === 0 || !allModelOptions.some(opt => opt.value.includes('realtime'))));
-            voiceInput.disabled = !isConnected || !isClassicBackend;
+            voiceInput.disabled = !isConnected; // Voice input enabled if connected, specific voices populated by fetchAndPopulateVoices
             sttLanguageInput.disabled = !isConnected; // STT language relevant for both
-            ttsSpeedInput.disabled = !isConnected || !isClassicBackend;
+            ttsSpeedInput.disabled = !isConnected || !isClassicBackend; // TTS Speed only for classic
             clearChatButton.disabled = !isConnected;
             optionsButton.disabled = !isConnected;
 
@@ -1250,7 +1250,8 @@
             
             // Hide/show options based on backend
             if (currentBackend === 'openai') {
-                if (voiceInput.parentElement) voiceInput.parentElement.style.display = 'none';
+                // Voice input parent element will be displayed by default if optionsRow is visible.
+                // fetchAndPopulateVoices will correctly populate it for OpenAI backend.
                 if (ttsSpeedInput.parentElement) ttsSpeedInput.parentElement.style.display = 'none';
                 // Cost display for OpenAI realtime
                 costDetails.style.display = 'none';
@@ -2292,16 +2293,8 @@
 
 
         async function fetchAndPopulateVoices() {
-            if (currentBackend === 'openai') {
-                console.log("OpenAI backend: Skipping voice population.");
-                voiceInput.disabled = true;
-                if(voiceInput.parentElement) voiceInput.parentElement.style.display = 'none';
-                allVoiceOptions = [];
-                voiceSuggestions.innerHTML = '';
-                voiceInput.value = '';
-                voiceInput.placeholder = 'N/A (OpenAI Realtime)';
-                return;
-            }
+            // Removed early return for OpenAI backend. 
+            // The /available_voices_tts endpoint handles returning appropriate voices.
             try {
                 const response = await fetch('/available_voices_tts'); 
                 if (!response.ok) {

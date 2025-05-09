@@ -882,13 +882,20 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             ),
                         )
                     elif event.type == "conversation.item.usage.completed" or event.type == "response.usage.completed":
-                        logger.info(f"OpenAIRealtime Usage Event: {event.type} - {event.usage}")
-                        if hasattr(event.usage, 'input_tokens') and event.usage.input_tokens is not None:
-                            self.current_input_tokens += event.usage.input_tokens
-                        if hasattr(event.usage, 'output_tokens') and event.usage.output_tokens is not None:
-                            self.current_output_tokens += event.usage.output_tokens
-                        self.raw_usage_events_for_turn.append({"type": event.type, "usage": dict(event.usage) if hasattr(event.usage, 'dict') else vars(event.usage)})
+                        logger.info(f"OpenAIRealtime Usage Event: {event.type} - Raw Usage Data: {event.usage}") # More detailed log
+                        current_event_input_tokens = 0
+                        current_event_output_tokens = 0
 
+                        if hasattr(event.usage, 'input_tokens') and event.usage.input_tokens is not None:
+                            current_event_input_tokens = event.usage.input_tokens
+                            self.current_input_tokens += current_event_input_tokens
+                        if hasattr(event.usage, 'output_tokens') and event.usage.output_tokens is not None:
+                            current_event_output_tokens = event.usage.output_tokens
+                            self.current_output_tokens += current_event_output_tokens
+                        
+                        logger.info(f"OpenAIRealtime Usage Parsed: Input Tokens Added: {current_event_input_tokens}, Output Tokens Added: {current_event_output_tokens}. Cumulative: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
+                        
+                        self.raw_usage_events_for_turn.append({"type": event.type, "usage": dict(event.usage) if hasattr(event.usage, 'dict') else vars(event.usage)})
 
                     elif event.type == "error":
                         error_code = "N/A"

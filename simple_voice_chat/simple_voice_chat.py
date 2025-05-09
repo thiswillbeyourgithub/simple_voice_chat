@@ -734,11 +734,17 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
         session_params: Dict[str, Any] = {
             "turn_detection": {"type": "server_vad"},
             "input_audio_transcription": transcription_config,
-            "output_audio_generation": {}, # Initialize output_audio_generation
+            # "output_audio_generation" and voice selection removed as it causes an error
+            # with the default OpenAI Realtime model (e.g., gpt-4o-mini-realtime-preview-2024-12-17).
+            # The API will likely use a default voice or one associated with the account/model.
         }
         
         if self.current_openai_voice:
-            session_params["output_audio_generation"]["voice"] = self.current_openai_voice
+            logger.warning(
+                f"OpenAIRealtimeHandler: A voice ('{self.current_openai_voice}') is configured for the OpenAI backend, "
+                "but the current API model/version might not support explicit voice selection via client parameters. "
+                "The default voice for the model will likely be used."
+            )
         
         # Parameters for client.beta.realtime.connect()
         connect_kwargs: Dict[str, Any] = {

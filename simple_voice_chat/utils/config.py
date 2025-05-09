@@ -11,17 +11,26 @@ OPENAI_TTS_PRICING = {
     "tts-1": 15.00,
     "tts-1-hd": 30.00,
 }
-OPENAI_TTS_VOICES = [ # Also used for OpenAI Realtime voices by default
+OPENAI_TTS_VOICES = [
     "alloy", "echo", "fable", "onyx", "nova", "shimmer", "ash",
 ]
-OPENAI_REALTIME_VOICES = OPENAI_TTS_VOICES # Assuming they are the same
-
-OPENAI_REALTIME_PRICING_PER_MINUTE = {
-    # Prices per minute of audio
-    "input": 0.006,  # Example: GPT-4o audio input price
-    "output": 0.012, # Example: GPT-4o audio output price
+OPENAI_REALTIME_VOICES = OPENAI_TTS_VOICES
+OPENAI_REALTIME_MODELS = ["gpt-4o-mini-realtime-preview", "gpt-4o-realtime-preview"]
+OPENAI_REALTIME_PRICING = {
+    # Prices per 1M token
+    "gpt-4o-mini-realtime-preview": {
+        "input": 10.0,
+        "cached_input": 0.30,
+        "output": 20.0,
+    },
+    "gpt-4o-realtime-preview": {
+        "input": 40.0,
+        "cached_input": 2.50,
+        "output": 80.0,
+    },
 }
 
+# gemini backend is not yet implemented but will soon be
 GEMINI_LIVE_PRICING = {
     # price per 1M audio token
     # source: https://ai.google.dev/gemini-api/docs/pricing

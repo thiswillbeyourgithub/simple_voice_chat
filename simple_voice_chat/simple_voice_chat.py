@@ -1,6 +1,9 @@
 import json
 import random
 import sys
+import os # Ensure os is imported early
+# Set LITELLM_MODE to PRODUCTION before litellm is imported
+os.environ['LITELLM_MODE'] = 'PRODUCTION'
 import threading
 import time
 import datetime

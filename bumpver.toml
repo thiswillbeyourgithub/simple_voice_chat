@@ -12,4 +12,4 @@ push = false
 [bumpver.file_patterns]
 "bumpver.toml" = ['current_version = "{version}"']
 "setup.py" = ['version="{version}"']
-"simple_voice_chat/simple_voice_chat.py" = ['APP_VERSION = "{version}"']
+"simple_voice_chat/utils/config.py" = ['APP_VERSION = "{version}"']

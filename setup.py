@@ -15,7 +15,7 @@ def _read_readme(filename="README.md"):
 
 setuptools.setup(
     name="simple-voice-chat", # CHANGEME: Verify or change the package name
-    version="3.3.0",
+    version="3.4.0",
     author="thiswillbeyourgithub",
     description="A simple voice chat interface using configurable LLM, STT, and TTS providers.",
     long_description=_read_readme(),
@@ -38,6 +38,7 @@ setuptools.setup(
 
     # Dependencies are now listed directly here
     install_requires=[
+        "click>=8.0", # Added click
         "qtpy>=2.4.3",
         "filelock>=3.18.0",
         "fastrtc[vad,tts]>=0.0.23",

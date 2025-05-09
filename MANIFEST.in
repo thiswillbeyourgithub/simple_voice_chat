@@ -1,0 +1,12 @@
+# Include the HTML file for the web interface
+include simple_voice_chat/index.html
+
+# Include the README for PyPI
+include README.md
+
+# Include the license file if you have one (e.g., LICENSE.txt)
+# include LICENSE.txt
+
+# If you have other static assets, include them as well
+# Example: include simple_voice_chat/static/*
+# Example: recursive-include simple_voice_chat/static *

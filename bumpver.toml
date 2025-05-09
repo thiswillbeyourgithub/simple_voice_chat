@@ -1,6 +1,6 @@
 
 [bumpver]
-current_version = "3.3.0"
+current_version = "3.4.0"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "bump version {old_version} -> {new_version}"
 tag_message = "{new_version}"
@@ -12,4 +12,4 @@ push = false
 [bumpver.file_patterns]
 "bumpver.toml" = ['current_version = "{version}"']
 "setup.py" = ['version="{version}"']
-"simple_voice_chat/simple_voice_chat.py" = ['APP_VERSION = "{version}"']
+"simple_voice_chat/utils/config.py" = ['APP_VERSION = "{version}"']

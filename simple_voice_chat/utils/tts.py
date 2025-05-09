@@ -49,12 +49,6 @@ def get_voices(tts_base_url: str, api_key: Optional[str]) -> List[str]:
     except Exception as e:
         logger.error(f"Unexpected error fetching voices: {e}")
 
-    # Default voice handling should be done by the caller based on this list
-    # if not voices:
-    #     logger.warning(
-    #         f"Could not retrieve any voices at {voices_url}. Caller should handle default."
-    #     )
-
     return voices
 
 

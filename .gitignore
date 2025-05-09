@@ -5,3 +5,4 @@ launch.sh
 .env.leave
 logs/
 __pycache__
+build

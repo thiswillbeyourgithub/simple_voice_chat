@@ -730,24 +730,24 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
         if self.current_stt_language: 
             transcription_config["language"] = self.current_stt_language
         
-        output_audio_config: Dict[str, Any] = {}
-        if self.current_openai_voice:
-            output_audio_config["voice"] = self.current_openai_voice
-            # output_audio_config["model"] = "tts-1" # Or similar, if required by API. Often implicit.
-        
+        # Parameters for session.update()
         session_params: Dict[str, Any] = {
             "turn_detection": {"type": "server_vad"},
             "input_audio_transcription": transcription_config,
+            # "output_audio_generation" is NOT part of session.update parameters
         }
-        if output_audio_config:
-            session_params["output_audio_generation"] = output_audio_config
+        
+        # Parameters for client.beta.realtime.connect()
+        connect_kwargs: Dict[str, Any] = {
+            "model": self.settings.openai_realtime_model_arg
+        }
+        if self.current_openai_voice:
+            connect_kwargs["voice"] = self.current_openai_voice
         
         try:
             self._reset_turn_usage_state() # Reset usage for new connection/session
-            async with self.client.beta.realtime.connect(
-                model=self.settings.openai_realtime_model_arg 
-            ) as conn:
-                await conn.session.update(session=session_params)
+            async with self.client.beta.realtime.connect(**connect_kwargs) as conn:
+                await conn.session.update(session=session_params) # Pass the simplified session_params
                 self.connection = conn
                 logger.info(f"OpenAIRealtimeHandler: Connection established with model {self.settings.openai_realtime_model_arg}, voice {self.current_openai_voice or 'default'}.")
                 

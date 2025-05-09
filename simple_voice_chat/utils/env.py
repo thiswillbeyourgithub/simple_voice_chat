@@ -47,7 +47,7 @@ TTS_PORT_ENV: str = os.getenv("TTS_PORT", "443")  # Default to HTTPS port
 TTS_MODEL_ENV: str = os.getenv(
     "TTS_MODEL", "tts-1"
 )  # Default to standard OpenAI TTS model
-DEFAULT_VOICE_TTS_ENV: str = os.getenv("TTS_VOICE", "ash")  # Default to an OpenAI voice
+DEFAULT_VOICE_TTS_ENV: str = os.getenv("TTS_VOICE", "ash")  # Default to an OpenAI voice for classic backend
 TTS_API_KEY_ENV: Optional[str] = os.getenv(
     "TTS_API_KEY"
 )  # For classic backend TTS (e.g., OpenAI TTS)
@@ -60,6 +60,8 @@ TTS_ACRONYM_PRESERVE_LIST_ENV: str = os.getenv("TTS_ACRONYM_PRESERVE_LIST", "")
 
 # --- OpenAI Backend Configuration ---
 OPENAI_API_KEY_ENV: Optional[str] = os.getenv("OPENAI_API_KEY") # Dedicated key for OpenAI backend
+OPENAI_REALTIME_MODEL_ENV: str = os.getenv("OPENAI_REALTIME_MODEL", "gpt-4o-mini-realtime-preview-2024-12-17")
+OPENAI_REALTIME_VOICE_ENV: str = os.getenv("OPENAI_REALTIME_VOICE", "alloy") # Default voice for OpenAI realtime backend
 
 # --- Application Configuration ---
 APP_PORT_ENV: str = os.getenv("APP_PORT", "7860")  # Keep as string for argparse default
@@ -97,6 +99,8 @@ __all__ = [
     "TTS_ACRONYM_PRESERVE_LIST_ENV",
     # OpenAI Backend
     "OPENAI_API_KEY_ENV",
+    "OPENAI_REALTIME_MODEL_ENV",
+    "OPENAI_REALTIME_VOICE_ENV",
     # App
     "APP_PORT_ENV",
     # Misc

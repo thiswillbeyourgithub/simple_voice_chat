@@ -7,13 +7,20 @@ from openai import OpenAI # For client type hints
 # --- Application Constants ---
 APP_VERSION = "3.4.0"
 OPENAI_TTS_PRICING = {
-    # price per 1M token
+    # price per 1M char
     "tts-1": 15.00,
     "tts-1-hd": 30.00,
 }
-OPENAI_TTS_VOICES = [
+OPENAI_TTS_VOICES = [ # Also used for OpenAI Realtime voices by default
     "alloy", "echo", "fable", "onyx", "nova", "shimmer", "ash",
 ]
+OPENAI_REALTIME_VOICES = OPENAI_TTS_VOICES # Assuming they are the same
+
+OPENAI_REALTIME_PRICING_PER_MINUTE = {
+    # Prices per minute of audio
+    "input": 0.006,  # Example: GPT-4o audio input price
+    "output": 0.012, # Example: GPT-4o audio output price
+}
 # --- End Application Constants ---
 
 
@@ -79,7 +86,7 @@ class AppSettings(BaseModel):
     tts_host_arg: str = "api.openai.com"
     tts_port_arg: str = "443"
     tts_model_arg: str = "tts-1"
-    tts_voice_arg: Optional[str] = None # Initial preference
+    tts_voice_arg: Optional[str] = None # Initial preference for classic backend TTS
     tts_api_key: Optional[str] = None # For classic backend TTS
     tts_speed_arg: float = 1.0 # Initial preference
     tts_acronym_preserve_list_arg: str = ""
@@ -90,10 +97,12 @@ class AppSettings(BaseModel):
     current_tts_voice: Optional[str] = None # Actual current TTS voice (classic backend)
     current_tts_speed: float = 1.0 # Actual current TTS speed (classic backend)
 
-    available_voices_tts: List[str] = Field(default_factory=list) # For classic backend voice dropdown
+    available_voices_tts: List[str] = Field(default_factory=list) # For classic backend voice dropdown OR OpenAI backend
 
     # --- OpenAI Backend Config ---
     openai_api_key: Optional[str] = None # Dedicated API key for OpenAI backend
+    openai_realtime_voice_arg: Optional[str] = None # Initial preference for OpenAI backend voice
+    current_openai_voice: Optional[str] = None # Actual current voice for OpenAI backend
 
     # --- Clients (Classic Backend) ---
     # Initialized in main() if backend is 'classic'
@@ -112,6 +121,8 @@ __all__ = [
     "APP_VERSION",
     "OPENAI_TTS_PRICING",
     "OPENAI_TTS_VOICES",
+    "OPENAI_REALTIME_VOICES",
+    "OPENAI_REALTIME_PRICING_PER_MINUTE",
     "settings",
     "AppSettings", # Export class for type hinting if needed elsewhere
 ]

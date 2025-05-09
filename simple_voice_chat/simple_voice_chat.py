@@ -48,7 +48,15 @@ from pydub import AudioSegment
 
 # --- Import Configuration ---
 # This 'settings' instance will be populated in main() and used throughout.
-from .utils.config import settings, APP_VERSION, OPENAI_TTS_PRICING, OPENAI_TTS_VOICES, AppSettings # Added AppSettings for type hint
+from .utils.config import (
+    settings, 
+    APP_VERSION, 
+    OPENAI_TTS_PRICING, 
+    OPENAI_TTS_VOICES, 
+    AppSettings, # Added AppSettings for type hint
+    OPENAI_REALTIME_VOICES, # Added for OpenAI backend
+    OPENAI_REALTIME_PRICING_PER_MINUTE, # Added for OpenAI backend
+)
 # --- End Import Configuration ---
 
 
@@ -76,8 +84,9 @@ from .utils.env import (
     TTS_ACRONYM_PRESERVE_LIST_ENV,
     APP_PORT_ENV,
     SYSTEM_MESSAGE_ENV,
-    OPENAI_API_KEY_ENV, # Added for OpenAI backend
-    # OPENAI_REALTIME_MODEL_ENV, # This would be added to utils/env.py if used
+    OPENAI_API_KEY_ENV, 
+    OPENAI_REALTIME_MODEL_ENV, 
+    OPENAI_REALTIME_VOICE_ENV,
 )
 
 # Import other utils functions
@@ -644,10 +653,12 @@ class ChatMessageMetadata(BaseModel):
     """Optional metadata associated with a chat message."""
     timestamp: Optional[str] = None 
     llm_model: Optional[str] = None
-    usage: Optional[Dict[str, Any]] = None 
-    cost: Optional[Dict[str, Any]] = None 
+    usage: Optional[Dict[str, Any]] = None # For classic: token counts; For OpenAI: token counts from events
+    cost: Optional[Dict[str, Any]] = None # For classic: LLM/TTS cost; For OpenAI: output audio cost
     stt_details: Optional[Dict[str, Any]] = None 
-    tts_audio_file_paths: Optional[List[str]] = None 
+    tts_audio_file_paths: Optional[List[str]] = None # Classic backend
+    output_audio_duration_seconds: Optional[float] = None # OpenAI backend
+    raw_openai_usage_events: Optional[List[Dict[str, Any]]] = None # For OpenAI backend to store usage events
 
 class ChatMessage(BaseModel):
     """Represents a single message in the chat history."""
@@ -675,50 +686,76 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
         self.connection = None
         self.output_queue = asyncio.Queue()
         self.client: Optional[openai.AsyncOpenAI] = None 
-        self.current_stt_language = self.settings.current_stt_language 
+        self.current_stt_language = self.settings.current_stt_language
+        self.current_openai_voice = self.settings.current_openai_voice
+
+        # State for cost calculation (OpenAI Backend)
+        self.current_output_audio_duration_seconds: float = 0.0
+        self.current_input_tokens: int = 0
+        self.current_output_tokens: int = 0
+        self.raw_usage_events_for_turn: List[Dict[str, Any]] = []
+
 
     def copy(self):
         return OpenAIRealtimeHandler(self.settings)
+
+    def _reset_turn_usage_state(self):
+        self.current_output_audio_duration_seconds = 0.0
+        self.current_input_tokens = 0
+        self.current_output_tokens = 0
+        self.raw_usage_events_for_turn = []
+        logger.debug("OpenAIRealtimeHandler: Turn usage state reset.")
 
     async def start_up(self):
         logger.info("OpenAIRealtimeHandler: Starting up and connecting to OpenAI...")
         if not self.settings.openai_api_key:
             logger.error("OpenAIRealtimeHandler: OpenAI API Key not configured. Cannot connect.")
             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": "OpenAI API Key missing."}))
-            await self.output_queue.put(None) # Ensure emit unblocks if start_up fails early
+            await self.output_queue.put(None) 
             return
 
         self.client = openai.AsyncOpenAI(api_key=self.settings.openai_api_key) 
 
+        # Update language and voice if changed in settings
         if self.current_stt_language != self.settings.current_stt_language:
             self.current_stt_language = self.settings.current_stt_language
             logger.info(f"OpenAIRealtimeHandler: STT language updated to: {self.current_stt_language or 'auto-detect'}")
+        
+        if self.current_openai_voice != self.settings.current_openai_voice:
+            self.current_openai_voice = self.settings.current_openai_voice
+            logger.info(f"OpenAIRealtimeHandler: Output voice updated to: {self.current_openai_voice}")
 
-        # For OpenAI Realtime, STT model is implicitly Whisper.
-        # We use stt_model_arg here just for consistency if it was ever to be whisper-1 vs something else,
-        # but OpenAI's API might not even take this for realtime.
-        # The primary model is the 'model' in client.beta.realtime.connect().
-        transcription_config: Dict[str, Any] = {
-             "model": "whisper-1", # OpenAI Realtime uses Whisper for transcription
-        }
+
+        transcription_config: Dict[str, Any] = {"model": "whisper-1"}
         if self.current_stt_language: 
             transcription_config["language"] = self.current_stt_language
         
+        output_audio_config: Dict[str, Any] = {}
+        if self.current_openai_voice:
+            output_audio_config["voice"] = self.current_openai_voice
+            # output_audio_config["model"] = "tts-1" # Or similar, if required by API. Often implicit.
+        
+        session_params: Dict[str, Any] = {
+            "turn_detection": {"type": "server_vad"},
+            "input_audio_transcription": transcription_config,
+        }
+        if output_audio_config:
+            session_params["output_audio_generation"] = output_audio_config
+        
         try:
+            self._reset_turn_usage_state() # Reset usage for new connection/session
             async with self.client.beta.realtime.connect(
-                model=self.settings.openai_realtime_model_arg # This is the main conversational model
+                model=self.settings.openai_realtime_model_arg 
             ) as conn:
-                await conn.session.update(
-                    session={
-                        "turn_detection": {"type": "server_vad"},
-                        "input_audio_transcription": transcription_config,
-                    }
-                )
+                await conn.session.update(session=session_params)
                 self.connection = conn
-                logger.info(f"OpenAIRealtimeHandler: Connection established with model {self.settings.openai_realtime_model_arg}.")
+                logger.info(f"OpenAIRealtimeHandler: Connection established with model {self.settings.openai_realtime_model_arg}, voice {self.current_openai_voice or 'default'}.")
+                
                 async for event in self.connection:
+                    logger.debug(f"OpenAIRealtime Event: {event.type}")
                     if event.type == "input_audio_buffer.speech_started":
                         self.clear_queue() 
+                        self._reset_turn_usage_state() # Reset for a new turn of speech
                         await self.output_queue.put(
                             AdditionalOutputs(
                                 {
@@ -747,13 +784,40 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             )
                         )
                     elif event.type == "response.audio_transcript.done":
+                        # --- Cost Calculation & Metadata ---
+                        output_audio_cost = 0.0
+                        if self.current_output_audio_duration_seconds > 0 and OPENAI_REALTIME_PRICING_PER_MINUTE.get("output"):
+                            output_audio_cost = (self.current_output_audio_duration_seconds / 60.0) * OPENAI_REALTIME_PRICING_PER_MINUTE["output"]
+                            logger.info(f"OpenAIRealtime: Output audio duration: {self.current_output_audio_duration_seconds:.2f}s, Cost: ${output_audio_cost:.6f}")
+                        
+                        # TODO: Implement input audio cost calculation if duration can be reliably obtained.
+                        # For now, input_audio_cost is 0.
+                        # total_cost = output_audio_cost 
+
+                        cost_data = {
+                            "output_audio_cost": output_audio_cost,
+                            "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2),
+                            "input_tokens": self.current_input_tokens, # From usage events
+                            "output_tokens": self.current_output_tokens, # From usage events
+                            "total_cost": output_audio_cost, # Placeholder, ideally includes input cost
+                            "model": self.settings.openai_realtime_model_arg,
+                            "note": "Input audio cost not yet implemented for OpenAI backend."
+                        }
+                        await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
+                        # --- End Cost Calculation ---
+
+                        assistant_metadata = ChatMessageMetadata(
+                            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), 
+                            llm_model=self.settings.openai_realtime_model_arg,
+                            cost=cost_data,
+                            output_audio_duration_seconds=round(self.current_output_audio_duration_seconds, 2),
+                            usage={"input_tokens": self.current_input_tokens, "output_tokens": self.current_output_tokens},
+                            raw_openai_usage_events=self.raw_usage_events_for_turn.copy()
+                        )
                         assistant_message = ChatMessage(
                             role="assistant", 
                             content=event.transcript, 
-                            metadata=ChatMessageMetadata(
-                                timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), 
-                                llm_model=self.settings.openai_realtime_model_arg
-                            )
+                            metadata=assistant_metadata
                         )
                         await self.output_queue.put(
                             AdditionalOutputs({"type": "chatbot_update", "message": assistant_message.model_dump()})
@@ -767,26 +831,34 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                                 }
                             )
                         )
-                        await self.output_queue.put(
-                            AdditionalOutputs(
-                                {
-                                    "type": "final_chatbot_state",
-                                    "history": [], 
-                                }
-                            )
-                        )
+                        # Removed problematic final_chatbot_state with empty history
+                        # The UI should append messages as they come. 'idle' signals end of turn.
+
                     elif event.type == "response.audio.delta":
-                        audio_data = np.frombuffer(
-                            base64.b64decode(event.delta), dtype=np.int16
-                        )
-                        if audio_data.ndim == 1: 
-                            audio_data = audio_data.reshape(1, -1)
+                        audio_data_bytes = base64.b64decode(event.delta)
+                        audio_data_np = np.frombuffer(audio_data_bytes, dtype=np.int16)
+                        
+                        num_samples = len(audio_data_np)
+                        duration_seconds_chunk = num_samples / OPENAI_REALTIME_SAMPLE_RATE
+                        self.current_output_audio_duration_seconds += duration_seconds_chunk
+
+                        if audio_data_np.ndim == 1: 
+                            audio_data_np = audio_data_np.reshape(1, -1)
                         await self.output_queue.put(
                             (
                                 OPENAI_REALTIME_SAMPLE_RATE,
-                                audio_data,
+                                audio_data_np,
                             ),
                         )
+                    elif event.type == "conversation.item.usage.completed" or event.type == "response.usage.completed":
+                        logger.info(f"OpenAIRealtime Usage Event: {event.type} - {event.usage}")
+                        if hasattr(event.usage, 'input_tokens') and event.usage.input_tokens is not None:
+                            self.current_input_tokens += event.usage.input_tokens
+                        if hasattr(event.usage, 'output_tokens') and event.usage.output_tokens is not None:
+                            self.current_output_tokens += event.usage.output_tokens
+                        self.raw_usage_events_for_turn.append({"type": event.type, "usage": dict(event.usage) if hasattr(event.usage, 'dict') else vars(event.usage)})
+
+
                     elif event.type == "error":
                         logger.error(f"OpenAI Realtime API Error: {event.message}")
                         await self.output_queue.put(
@@ -811,14 +883,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                                 }
                             )
                         )
-                        await self.output_queue.put(
-                            AdditionalOutputs(
-                                {
-                                    "type": "final_chatbot_state",
-                                    "history": [], 
-                                }
-                            )
-                        )
+                        # Removed problematic final_chatbot_state
         except openai.AuthenticationError as e:
             logger.error(f"OpenAIRealtimeHandler: Authentication Error: {e}. Check your --openai-api-key.")
             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": "OpenAI Auth Error. Check API Key."}))
@@ -833,12 +898,12 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                     await self.connection.close()
                 except Exception as e:
                     logger.warning(f"OpenAIRealtimeHandler: Error closing connection in start_up finally: {e}")
-            self.connection = None # Ensure connection is set to None
-            await self.output_queue.put(None) # Signal end or error to emit
+            self.connection = None 
+            await self.output_queue.put(None) 
 
 
     async def receive(self, frame: tuple[int, np.ndarray]) -> None:
-        if not self.connection: # Check if connection object exists
+        if not self.connection: 
             return
         
         _, array = frame
@@ -854,7 +919,6 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
             await self.connection.input_audio_buffer.append(audio=audio_message)
         except Exception as e: 
             logger.error(f"OpenAIRealtimeHandler: Error sending audio: {e}")
-            # Consider if self.connection should be set to None here if error indicates a dead connection
 
 
     async def emit(self) -> tuple[int, np.ndarray] | AdditionalOutputs | None:
@@ -868,7 +932,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                 await self.connection.close()
             except Exception as e:
                 logger.warning(f"OpenAIRealtimeHandler: Error closing connection in shutdown: {e}")
-        self.connection = None # Ensure connection is set to None
+        self.connection = None 
         if self.client:
             await self.client.close() 
             self.client = None
@@ -915,8 +979,11 @@ def register_endpoints(app: FastAPI, stream: Stream):
         html_content = html_content.replace(
             "__STT_LANGUAGE_JSON__", json.dumps(settings.current_stt_language)
         )
+        # For TTS speed, OpenAI backend doesn't have a user-configurable speed via this app's settings.
+        # It might be part of the voice model or a parameter not exposed here. Default to 1.0.
+        tts_speed_to_inject = settings.current_tts_speed if settings.backend == "classic" else 1.0
         html_content = html_content.replace(
-            "__TTS_SPEED_JSON__", json.dumps(settings.current_tts_speed if settings.backend == "classic" else 1.0) # OpenAI backend doesn't use this
+            "__TTS_SPEED_JSON__", json.dumps(tts_speed_to_inject)
         )
         html_content = html_content.replace(
             "__STARTUP_TIMESTAMP_STR__", json.dumps(settings.startup_timestamp_str)
@@ -987,9 +1054,8 @@ def register_endpoints(app: FastAPI, stream: Stream):
         return StreamingResponse(output_stream(), media_type="text/event-stream")
 
     @app.get("/available_models")
-    async def get_available_models_endpoint(): # Renamed to avoid conflict with settings.available_models
+    async def get_available_models_endpoint(): 
         if settings.backend == "openai":
-            # For OpenAI backend, the model is fixed by openai_realtime_model_arg
             return JSONResponse(
                 {"available": [settings.openai_realtime_model_arg], "current": settings.openai_realtime_model_arg}
             )
@@ -999,54 +1065,76 @@ def register_endpoints(app: FastAPI, stream: Stream):
             )
 
     @app.get("/available_voices_tts")
-    async def get_available_voices_tts_endpoint(): # Renamed
+    async def get_available_voices_tts_endpoint(): 
         if settings.backend == "openai":
-            # OpenAI realtime backend handles voice internally, no user selection via this app
-            return JSONResponse({"available": [], "current": None, "is_openai": True}) 
+            # OpenAI realtime backend uses its own set of voices, potentially configurable
+            response_data = prepare_available_voices_data(
+                settings.current_openai_voice, OPENAI_REALTIME_VOICES # Use OPENAI_REALTIME_VOICES
+            )
+            response_data["is_openai_realtime"] = True # Add a flag for UI
+            return JSONResponse(response_data)
         else: # classic
             response_data = prepare_available_voices_data(
                 settings.current_tts_voice, settings.available_voices_tts
             )
+            response_data["is_openai_realtime"] = False
             return JSONResponse(response_data)
 
     @app.post("/switch_voice")
     async def switch_voice(request: Request):
-        if settings.backend == "openai":
-            return JSONResponse(
-                {"status": "error", "message": "Voice switching not available for OpenAI realtime backend."},
-                status_code=400,
-            )
-        # Classic backend logic
         try:
             data = await request.json()
             new_voice_name = data.get("voice_name")
-            if new_voice_name:
+            if not new_voice_name:
+                logger.warning("Missing voice_name in switch request.")
+                return JSONResponse(
+                    {"status": "error", "message": "Missing 'voice_name' in request body."},
+                    status_code=400,
+                )
+
+            if settings.backend == "openai":
+                if new_voice_name != settings.current_openai_voice:
+                    if new_voice_name in OPENAI_REALTIME_VOICES:
+                        settings.current_openai_voice = new_voice_name
+                        logger.info(f"Switched active OpenAI realtime voice to: {settings.current_openai_voice}")
+                        # The OpenAIRealtimeHandler will pick this up on the next connection.
+                        return JSONResponse(
+                            {"status": "success", "voice": settings.current_openai_voice}
+                        )
+                    else:
+                        logger.warning(
+                            f"Attempted to switch OpenAI realtime voice to '{new_voice_name}' which is not in the available list: {OPENAI_REALTIME_VOICES}"
+                        )
+                        return JSONResponse(
+                            {"status": "error", "message": f"Voice '{new_voice_name}' is not available for OpenAI realtime backend."},
+                            status_code=400,
+                        )
+                else:
+                    logger.info(f"OpenAI realtime voice already set to: {new_voice_name}")
+                    return JSONResponse(
+                        {"status": "success", "voice": settings.current_openai_voice}
+                    )
+            else: # Classic backend logic
                 if new_voice_name != settings.current_tts_voice:
                     if new_voice_name in settings.available_voices_tts:
                         settings.current_tts_voice = new_voice_name
-                        logger.info(f"Switched active TTS voice to: {settings.current_tts_voice}")
+                        logger.info(f"Switched active classic TTS voice to: {settings.current_tts_voice}")
                         return JSONResponse(
                             {"status": "success", "voice": settings.current_tts_voice}
                         )
                     else:
                         logger.warning(
-                            f"Attempted to switch to voice '{new_voice_name}' which is not in the available list: {settings.available_voices_tts}"
+                            f"Attempted to switch classic TTS voice to '{new_voice_name}' which is not in the available list: {settings.available_voices_tts}"
                         )
                         return JSONResponse(
-                            {"status": "error", "message": f"Voice '{new_voice_name}' is not available."},
+                            {"status": "error", "message": f"Voice '{new_voice_name}' is not available for classic backend."},
                             status_code=400,
                         )
                 else:
-                    logger.info(f"Voice already set to: {new_voice_name}")
+                    logger.info(f"Classic TTS voice already set to: {new_voice_name}")
                     return JSONResponse(
                         {"status": "success", "voice": settings.current_tts_voice}
                     ) 
-            else: 
-                logger.warning(f"Missing voice_name in switch request.")
-                return JSONResponse(
-                    {"status": "error", "message": f"Missing 'voice_name' in request body."},
-                    status_code=400,
-                )
         except json.JSONDecodeError:
             logger.error("Failed to decode JSON body in /switch_voice")
             return JSONResponse(
@@ -1077,7 +1165,6 @@ def register_endpoints(app: FastAPI, stream: Stream):
                     f"Switched active STT language to: '{settings.current_stt_language}' (None means auto-detect)"
                 )
                 # For OpenAI backend, the handler needs to pick up this change on next connection.
-                # No direct action here other than updating settings.
                 return JSONResponse(
                     {"status": "success", "stt_language": settings.current_stt_language}
                 )
@@ -1104,9 +1191,13 @@ def register_endpoints(app: FastAPI, stream: Stream):
     @app.post("/switch_tts_speed")
     async def switch_tts_speed(request: Request):
         if settings.backend == "openai":
+            # OpenAI Realtime API might have speed control, but it's not exposed via this app's settings in the same way.
+            # The 'output_audio_generation' parameters in OpenAI's API can include 'speed'.
+            # For now, this app doesn't allow changing it for OpenAI backend.
+            logger.info("TTS speed adjustment requested for OpenAI backend, which is not currently user-configurable via this app's UI.")
             return JSONResponse(
-                {"status": "error", "message": "TTS speed adjustment not available for OpenAI realtime backend."},
-                status_code=400,
+                {"status": "info", "message": "TTS speed adjustment for OpenAI realtime backend is handled by OpenAI or not user-configurable through this app."},
+                status_code=200, # Not an error, just info.
             )
         # Classic backend logic
         try:
@@ -1133,14 +1224,14 @@ def register_endpoints(app: FastAPI, stream: Stream):
             if new_speed_float != settings.current_tts_speed:
                 settings.current_tts_speed = new_speed_float
                 logger.info(
-                    f"Switched active TTS speed to: {settings.current_tts_speed:.1f}"
+                    f"Switched active TTS speed (classic backend) to: {settings.current_tts_speed:.1f}"
                 )
                 return JSONResponse(
                     {"status": "success", "tts_speed": settings.current_tts_speed}
                 )
             else:
                 logger.info(
-                    f"TTS speed already set to: {settings.current_tts_speed:.1f}"
+                    f"TTS speed (classic backend) already set to: {settings.current_tts_speed:.1f}"
                 )
                 return JSONResponse(
                     {"status": "success", "tts_speed": settings.current_tts_speed}
@@ -1250,12 +1341,12 @@ def register_endpoints(app: FastAPI, stream: Stream):
             settings.startup_timestamp_str = new_timestamp
             logger.info(f"Chat log timestamp reset to: {settings.startup_timestamp_str}")
             # Also reset the TTS audio directory for the new "session"
-            if settings.tts_base_dir:
+            if settings.tts_base_dir: # Only relevant for classic backend
                 settings.tts_audio_dir = settings.tts_base_dir / settings.startup_timestamp_str
                 settings.tts_audio_dir.mkdir(exist_ok=True)
                 logger.info(f"TTS audio directory for this session reset to: {settings.tts_audio_dir}")
             else:
-                logger.warning("tts_base_dir not set, cannot reset TTS audio directory.")
+                logger.warning("tts_base_dir not set, cannot reset TTS audio directory (or not applicable for current backend).")
 
             return JSONResponse(
                 {"status": "success", "new_timestamp": settings.startup_timestamp_str}
@@ -1269,24 +1360,20 @@ def register_endpoints(app: FastAPI, stream: Stream):
 
     @app.get("/tts_audio/{run_timestamp}/{filename}")
     async def get_tts_audio(run_timestamp: str, filename: str):
-        # This endpoint is primarily for the classic backend.
-        # OpenAI backend streams audio directly and doesn't rely on saved files via this route.
         if settings.backend == "openai":
             logger.warning(f"Request to /tts_audio for '{filename}' when using OpenAI backend. This endpoint is for classic backend.")
             raise HTTPException(status_code=404, detail="TTS audio file serving not applicable for OpenAI backend.")
 
-        if not settings.tts_audio_dir: # Should be set for classic backend
-             logger.error("settings.tts_audio_dir not configured, cannot serve audio.")
+        if not settings.tts_audio_dir: 
+             logger.error("settings.tts_audio_dir not configured for classic backend, cannot serve audio.")
              raise HTTPException(status_code=500, detail="Server configuration error")
 
         if ".." in filename or "/" in filename or "\\" in filename:
             logger.warning(f"Attempt to access potentially unsafe filename: {filename}")
             raise HTTPException(status_code=400, detail="Invalid filename")
         
-        # For classic backend, tts_audio_dir is already specific to the run_timestamp (startup_timestamp_str)
-        # So, we directly use settings.tts_audio_dir
         file_path = settings.tts_audio_dir / filename
-        logger.debug(f"Attempting to serve TTS audio file: {file_path} (URL timestamp '{run_timestamp}' used for context if needed, but path is primary)")
+        logger.debug(f"Attempting to serve TTS audio file (classic backend): {file_path}")
 
         if file_path.is_file():
             return FileResponse(file_path, media_type="audio/mpeg", filename=filename)
@@ -1410,9 +1497,17 @@ def monitor_heartbeat_thread():
     "--openai-realtime-model",
     type=str,
     envvar="OPENAI_REALTIME_MODEL", 
-    default="gpt-4o-mini-realtime-preview-2024-12-17", 
+    default=OPENAI_REALTIME_MODEL_ENV, 
     show_default=True,
     help="OpenAI realtime API model to use (if --backend=openai). (Env: OPENAI_REALTIME_MODEL)",
+)
+@click.option(
+    "--openai-realtime-voice",
+    type=str,
+    envvar="OPENAI_REALTIME_VOICE",
+    default=OPENAI_REALTIME_VOICE_ENV,
+    show_default=True,
+    help="Default voice for OpenAI realtime backend (if --backend=openai). (Env: OPENAI_REALTIME_VOICE)",
 )
 @click.option(
     "--openai-api-key",
@@ -1545,7 +1640,7 @@ def monitor_heartbeat_thread():
 @click.option(
     "--tts-voice",
     type=str,
-    envvar="TTS_VOICE",
+    envvar="TTS_VOICE", # This is for CLASSIC backend TTS voice
     default=DEFAULT_VOICE_TTS_ENV,
     show_default=True,
     help="Default TTS voice to use (classic backend). (Env: TTS_VOICE)",
@@ -1582,24 +1677,25 @@ def main(
     system_message: Optional[str],
     backend: str, 
     openai_realtime_model: str,
-    openai_api_key: Optional[str], # New dedicated key for OpenAI backend
+    openai_realtime_voice: str, # New CLI option for OpenAI backend voice
+    openai_api_key: Optional[str], 
     llm_host: Optional[str],
     llm_port: Optional[str],
     llm_model: str,
-    llm_api_key: Optional[str], # For classic backend LLM
+    llm_api_key: Optional[str], 
     stt_host: str,
     stt_port: str,
     stt_model: str,
-    stt_language: Optional[str], # Used by both backends
-    stt_api_key: Optional[str], # For classic backend STT
+    stt_language: Optional[str], 
+    stt_api_key: Optional[str], 
     stt_no_speech_prob_threshold: float,
     stt_avg_logprob_threshold: float,
     stt_min_words_threshold: int,
     tts_host: str,
     tts_port: str,
     tts_model: str,
-    tts_voice: str,
-    tts_api_key: Optional[str], # For classic backend TTS
+    tts_voice: str, # This is for CLASSIC backend TTS voice
+    tts_api_key: Optional[str], 
     tts_speed: float,
     tts_acronym_preserve_list: str,
 ) -> int:
@@ -1611,7 +1707,8 @@ def main(
     settings.startup_timestamp_str = startup_timestamp_str_local
     settings.backend = backend
     settings.openai_realtime_model_arg = openai_realtime_model
-    settings.openai_api_key = openai_api_key # Store the dedicated OpenAI key
+    settings.openai_realtime_voice_arg = openai_realtime_voice # Store initial arg
+    settings.openai_api_key = openai_api_key 
 
     settings.preferred_port = port
     settings.host = host
@@ -1658,7 +1755,7 @@ def main(
     logger.info(f"Using backend: {settings.backend}")
 
     # --- STT Language (Common to both backends) ---
-    settings.stt_language_arg = stt_language # Store initial arg
+    settings.stt_language_arg = stt_language 
     if settings.stt_language_arg:
         logger.info(f"STT language specified: {settings.stt_language_arg}")
         settings.current_stt_language = settings.stt_language_arg
@@ -1670,34 +1767,45 @@ def main(
     if settings.backend == "openai":
         logger.info(f"Configuring for 'openai' backend.")
         logger.info(f"OpenAI Realtime Model: {settings.openai_realtime_model_arg}")
-        settings.current_llm_model = settings.openai_realtime_model_arg # Use this for consistency
-        settings.available_models = [settings.openai_realtime_model_arg] # For UI display
-        settings.model_cost_data = {} # Cost calculation not handled by this app for OpenAI realtime
+        settings.current_llm_model = settings.openai_realtime_model_arg 
+        settings.available_models = [settings.openai_realtime_model_arg] 
+        settings.model_cost_data = {} # Cost for OpenAI realtime is handled differently (per minute)
 
         if not settings.openai_api_key:
             logger.critical("OpenAI API Key (--openai-api-key or OPENAI_API_KEY env) is REQUIRED for 'openai' backend. Exiting.")
             return 1
         logger.info("Using dedicated OpenAI API Key for 'openai' backend.")
 
+        # OpenAI Realtime Voice
+        settings.available_voices_tts = OPENAI_REALTIME_VOICES # Populate for UI dropdown
+        initial_openai_voice_preference = settings.openai_realtime_voice_arg
+        if initial_openai_voice_preference and initial_openai_voice_preference in OPENAI_REALTIME_VOICES:
+            settings.current_openai_voice = initial_openai_voice_preference
+        elif OPENAI_REALTIME_VOICES:
+            if initial_openai_voice_preference:
+                 logger.warning(f"OpenAI realtime voice '{initial_openai_voice_preference}' not found. Using first available: {OPENAI_REALTIME_VOICES[0]}.")
+            settings.current_openai_voice = OPENAI_REALTIME_VOICES[0]
+        else: # Should not happen if OPENAI_REALTIME_VOICES is populated
+            settings.current_openai_voice = initial_openai_voice_preference 
+            logger.error(f"No OpenAI realtime voices available or specified voice '{settings.current_openai_voice}' is invalid. Voice may not work.")
+        logger.info(f"Initial OpenAI realtime voice set to: {settings.current_openai_voice}")
+
+
         # Log warnings if classic backend STT/TTS params are provided unnecessarily
         if stt_host != STT_HOST_ENV or stt_port != STT_PORT_ENV or stt_model != STT_MODEL_ENV or stt_api_key is not None:
             logger.warning("STT host/port/model/api-key parameters are ignored when using 'openai' backend (except STT language).")
         if tts_host != TTS_HOST_ENV or tts_port != TTS_PORT_ENV or tts_model != TTS_MODEL_ENV or tts_voice != DEFAULT_VOICE_TTS_ENV or tts_api_key is not None or tts_speed != float(DEFAULT_TTS_SPEED_ENV):
-            logger.warning("TTS host/port/model/voice/api-key/speed parameters are ignored when using 'openai' backend.")
+            logger.warning("Classic TTS host/port/model/voice/api-key/speed parameters are ignored when using 'openai' backend.")
         
-        # For OpenAI backend, STT/TTS clients are not initialized here.
-        # Voice selection and TTS speed are handled by OpenAI's API directly.
-        settings.available_voices_tts = [] 
-        settings.current_tts_voice = None
-        settings.current_tts_speed = 1.0 # Default, as it's not configurable for OpenAI backend via this app
+        settings.current_tts_speed = 1.0 # Not user-configurable for OpenAI backend via this app
 
     elif settings.backend == "classic":
         logger.info(f"Configuring for 'classic' backend.")
         # --- LLM Configuration (Classic) ---
         settings.llm_host_arg = llm_host
         settings.llm_port_arg = llm_port
-        settings.llm_model_arg = llm_model # Initial preference
-        settings.llm_api_key = llm_api_key # LLM specific key for classic
+        settings.llm_model_arg = llm_model 
+        settings.llm_api_key = llm_api_key 
 
         settings.use_llm_proxy = bool(settings.llm_host_arg and settings.llm_port_arg)
         if settings.use_llm_proxy:
@@ -1727,7 +1835,7 @@ def main(
         settings.stt_host_arg = stt_host
         settings.stt_port_arg = stt_port
         settings.stt_model_arg = stt_model
-        settings.stt_api_key = stt_api_key # STT specific key for classic
+        settings.stt_api_key = stt_api_key 
         settings.stt_no_speech_prob_threshold = stt_no_speech_prob_threshold
         settings.stt_avg_logprob_threshold = stt_avg_logprob_threshold
         settings.stt_min_words_threshold = stt_min_words_threshold
@@ -1742,10 +1850,10 @@ def main(
                 )
                 return 1
             logger.info("Using STT API key for OpenAI STT.")
-        else: # Custom STT
+        else: 
             try:
                 stt_port_int = int(settings.stt_port_arg)
-                scheme = "http" # Assuming http for custom, adjust if https needed
+                scheme = "http" 
                 settings.stt_api_base = f"{scheme}://{settings.stt_host_arg}:{stt_port_int}/v1"
                 logger.info(f"Using Custom STT server at: {settings.stt_api_base} with model {settings.stt_model_arg}")
                 if settings.stt_api_key:
@@ -1765,9 +1873,9 @@ def main(
         settings.tts_host_arg = tts_host
         settings.tts_port_arg = tts_port
         settings.tts_model_arg = tts_model
-        settings.tts_voice_arg = tts_voice # Initial preference
-        settings.tts_api_key = tts_api_key # TTS specific key for classic
-        settings.tts_speed_arg = tts_speed # Initial preference
+        settings.tts_voice_arg = tts_voice # Classic backend TTS voice
+        settings.tts_api_key = tts_api_key 
+        settings.tts_speed_arg = tts_speed 
         settings.tts_acronym_preserve_list_arg = tts_acronym_preserve_list
 
         settings.is_openai_tts = settings.tts_host_arg == "api.openai.com"
@@ -1784,10 +1892,10 @@ def main(
                 logger.info(
                     f"OpenAI TTS pricing for '{settings.tts_model_arg}': ${OPENAI_TTS_PRICING[settings.tts_model_arg]:.2f} / 1M chars"
                 )
-        else: # Custom TTS
+        else: 
             try:
                 tts_port_int = int(settings.tts_port_arg)
-                scheme = "http" # Assuming http for custom
+                scheme = "http" 
                 settings.tts_base_url = f"{scheme}://{settings.tts_host_arg}:{tts_port_int}/v1"
                 logger.info(f"Using Custom TTS server at: {settings.tts_base_url} with model {settings.tts_model_arg}")
                 if settings.tts_api_key:
@@ -1815,7 +1923,7 @@ def main(
         try:
             settings.stt_client = OpenAI(
                 base_url=settings.stt_api_base,
-                api_key=settings.stt_api_key, # STT specific key
+                api_key=settings.stt_api_key, 
             )
             logger.info(f"STT client initialized for classic backend (target: {settings.stt_api_base}).")
         except Exception as e:
@@ -1825,7 +1933,7 @@ def main(
         try:
             settings.tts_client = OpenAI(
                 base_url=settings.tts_base_url,
-                api_key=settings.tts_api_key, # TTS specific key
+                api_key=settings.tts_api_key, 
             )
             logger.info(f"TTS client initialized for classic backend (target: {settings.tts_base_url}).")
         except Exception as e:
@@ -1858,23 +1966,23 @@ def main(
         
         if settings.is_openai_tts:
             settings.available_voices_tts = OPENAI_TTS_VOICES
-        else: # Custom TTS
+        else: 
             settings.available_voices_tts = get_voices(settings.tts_base_url, settings.tts_api_key)
             if not settings.available_voices_tts:
                 logger.warning(f"Could not retrieve voices from custom TTS server at {settings.tts_base_url}.")
         logger.info(f"Available TTS voices (classic backend): {settings.available_voices_tts}")
 
-        initial_tts_voice_preference = settings.tts_voice_arg
+        initial_tts_voice_preference = settings.tts_voice_arg # Classic TTS voice
         if initial_tts_voice_preference and initial_tts_voice_preference in settings.available_voices_tts:
             settings.current_tts_voice = initial_tts_voice_preference
         elif settings.available_voices_tts:
             if initial_tts_voice_preference:
-                 logger.warning(f"TTS voice '{initial_tts_voice_preference}' not found. Using first available: {settings.available_voices_tts[0]}.")
+                 logger.warning(f"Classic TTS voice '{initial_tts_voice_preference}' not found. Using first available: {settings.available_voices_tts[0]}.")
             settings.current_tts_voice = settings.available_voices_tts[0]
         else:
             settings.current_tts_voice = initial_tts_voice_preference
-            logger.error(f"No TTS voices available or specified voice '{settings.current_tts_voice}' is invalid. TTS may fail.")
-        logger.info(f"Initial TTS voice (classic backend) set to: {settings.current_tts_voice}")
+            logger.error(f"No classic TTS voices available or specified voice '{settings.current_tts_voice}' is invalid. TTS may fail.")
+        logger.info(f"Initial classic TTS voice set to: {settings.current_tts_voice}")
 
     # --- Common Post-Backend-Specific Setup ---
     if settings.system_message:
@@ -1913,10 +2021,9 @@ def main(
             logger.info(f"This run's TTS audio directory (classic backend): {settings.tts_audio_dir}")
         except Exception as e:
             logger.error(f"Failed to create temporary TTS audio directory for classic backend: {e}. TTS audio saving might fail.")
-            # Potentially return 1 if TTS audio dir is critical for classic mode and fails.
-    else: # OpenAI backend
+    else: 
         logger.info("TTS audio file saving to disk is not applicable for 'openai' backend.")
-        settings.tts_audio_dir = None # Explicitly set to None
+        settings.tts_audio_dir = None 
 
 
     logger.info(f"Application server host: {settings.host}")
@@ -1929,7 +2036,7 @@ def main(
     if settings.backend == "openai":
         logger.info("Initializing Stream with OpenAIRealtimeHandler.")
         stream_handler = OpenAIRealtimeHandler(app_settings=settings)
-    else: # classic backend
+    else: 
         logger.info("Initializing Stream with ReplyOnPause handler for classic backend.")
         stream_handler = ReplyOnPause(
             response, 

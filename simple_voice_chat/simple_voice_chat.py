@@ -1,4 +1,3 @@
-import argparse
 import json
 import random
 import sys
@@ -18,6 +17,7 @@ import litellm
 import numpy as np
 import webview
 import platformdirs
+import click # Added click
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import (
@@ -1207,193 +1207,248 @@ def monitor_heartbeat_thread():
     logger.info("Heartbeat monitor thread finished.")
 
 
-def main() -> int:
+@click.command(help="Run a simple voice chat interface using a configurable LLM provider, STT server, and TTS.")
+@click.option(
+    "--host",
+    type=str,
+    default="127.0.0.1",
+    show_default=True,
+    help="Host address to bind the FastAPI server to.",
+)
+@click.option(
+    "--port",
+    type=click.INT,
+    envvar="APP_PORT",
+    default=int(APP_PORT_ENV), # Resolved default from env.py or actual env
+    show_default=True, # Shows the resolved default
+    help="Preferred port to run the FastAPI server on. (Env: APP_PORT)",
+)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Enable verbose logging (DEBUG level).",
+)
+@click.option(
+    "--browser",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Launch the application in the default web browser instead of a dedicated GUI window.",
+)
+@click.option(
+    "--system-message",
+    type=str,
+    envvar="SYSTEM_MESSAGE",
+    default=SYSTEM_MESSAGE_ENV, # Can be None or empty string
+    show_default=True,
+    help="System message to prepend to the chat history. (Env: SYSTEM_MESSAGE)",
+)
+@click.option(
+    "--llm-host",
+    type=str,
+    envvar="LLM_HOST",
+    default=LLM_HOST_ENV, # Can be None
+    show_default=True,
+    help="Host address of the LLM proxy server (optional). (Env: LLM_HOST)",
+)
+@click.option(
+    "--llm-port",
+    type=str, 
+    envvar="LLM_PORT",
+    default=LLM_PORT_ENV, # Can be None
+    show_default=True,
+    help="Port of the LLM proxy server (optional). (Env: LLM_PORT)",
+)
+@click.option(
+    "--llm-model",
+    type=str,
+    envvar="LLM_MODEL",
+    default=DEFAULT_LLM_MODEL_ENV,
+    show_default=True,
+    help="Default LLM model to use (e.g., 'gpt-4o', 'litellm_proxy/claude-3-opus'). (Env: LLM_MODEL)",
+)
+@click.option(
+    "--llm-api-key",
+    type=str,
+    envvar="LLM_API_KEY",
+    default=LLM_API_KEY_ENV, # Can be None
+    show_default=True,
+    help="API key for the LLM provider/proxy (optional, depends on setup). (Env: LLM_API_KEY)",
+)
+@click.option(
+    "--stt-host",
+    type=str,
+    envvar="STT_HOST",
+    default=STT_HOST_ENV,
+    show_default=True,
+    help="Host address of the STT server (e.g., 'api.openai.com' or 'localhost'). (Env: STT_HOST)",
+)
+@click.option(
+    "--stt-port",
+    type=str, 
+    envvar="STT_PORT",
+    default=STT_PORT_ENV,
+    show_default=True,
+    help="Port of the STT server (e.g., 443 for OpenAI, 8002 for local). (Env: STT_PORT)",
+)
+@click.option(
+    "--stt-model",
+    type=str,
+    envvar="STT_MODEL",
+    default=STT_MODEL_ENV,
+    show_default=True,
+    help="STT model to use (e.g., 'whisper-1' for OpenAI, 'deepdml/faster-whisper-large-v3-turbo-ct2' for local). (Env: STT_MODEL)",
+)
+@click.option(
+    "--stt-language",
+    type=str,
+    envvar="STT_LANGUAGE",
+    default=STT_LANGUAGE_ENV, # Can be None or empty string
+    show_default=True,
+    help="Language code for STT (e.g., 'en', 'fr'). If unset, Whisper usually auto-detects. (Env: STT_LANGUAGE)",
+)
+@click.option(
+    "--stt-api-key",
+    type=str,
+    envvar="STT_API_KEY",
+    default=STT_API_KEY_ENV, # Can be None
+    show_default=True,
+    help="API key for the STT server (REQUIRED for OpenAI STT). (Env: STT_API_KEY)",
+)
+@click.option(
+    "--stt-no-speech-prob-threshold",
+    type=click.FLOAT,
+    envvar="STT_NO_SPEECH_PROB_THRESHOLD",
+    default=float(STT_NO_SPEECH_PROB_THRESHOLD_ENV),
+    show_default=True,
+    help=f"STT confidence: Reject if no_speech_prob > this. (Env: STT_NO_SPEECH_PROB_THRESHOLD)",
+)
+@click.option(
+    "--stt-avg-logprob-threshold",
+    type=click.FLOAT,
+    envvar="STT_AVG_LOGPROB_THRESHOLD",
+    default=float(STT_AVG_LOGPROB_THRESHOLD_ENV),
+    show_default=True,
+    help=f"STT confidence: Reject if avg_logprob < this. (Env: STT_AVG_LOGPROB_THRESHOLD)",
+)
+@click.option(
+    "--stt-min-words-threshold",
+    type=click.INT,
+    envvar="STT_MIN_WORDS_THRESHOLD",
+    default=int(STT_MIN_WORDS_THRESHOLD_ENV),
+    show_default=True,
+    help=f"STT confidence: Reject if word count < this. (Env: STT_MIN_WORDS_THRESHOLD)",
+)
+@click.option(
+    "--tts-host",
+    type=str,
+    envvar="TTS_HOST",
+    default=TTS_HOST_ENV,
+    show_default=True,
+    help="Host address of the TTS server (e.g., 'api.openai.com' or 'localhost'). (Env: TTS_HOST)",
+)
+@click.option(
+    "--tts-port",
+    type=str, 
+    envvar="TTS_PORT",
+    default=TTS_PORT_ENV,
+    show_default=True,
+    help="Port of the TTS server (e.g., 443 for OpenAI, 8880 for local). (Env: TTS_PORT)",
+)
+@click.option(
+    "--tts-model",
+    type=str,
+    envvar="TTS_MODEL",
+    default=TTS_MODEL_ENV,
+    show_default=True,
+    help="TTS model to use (e.g., 'tts-1', 'tts-1-hd' for OpenAI, 'kokoro' for local). (Env: TTS_MODEL)",
+)
+@click.option(
+    "--tts-voice",
+    type=str,
+    envvar="TTS_VOICE",
+    default=DEFAULT_VOICE_TTS_ENV,
+    show_default=True,
+    help="Default TTS voice to use (e.g., 'alloy', 'ash' for OpenAI, 'ff_siwis' for local). (Env: TTS_VOICE)",
+)
+@click.option(
+    "--tts-api-key",
+    type=str,
+    envvar="TTS_API_KEY",
+    default=TTS_API_KEY_ENV, # Can be None
+    show_default=True,
+    help="API key for the TTS server (REQUIRED for OpenAI TTS). (Env: TTS_API_KEY)",
+)
+@click.option(
+    "--tts-speed",
+    type=click.FLOAT,
+    envvar="TTS_SPEED",
+    default=float(DEFAULT_TTS_SPEED_ENV),
+    show_default=True,
+    help=f"Default TTS speed multiplier. (Env: TTS_SPEED)",
+)
+@click.option(
+    "--tts-acronym-preserve-list",
+    type=str,
+    envvar="TTS_ACRONYM_PRESERVE_LIST",
+    default=TTS_ACRONYM_PRESERVE_LIST_ENV, # Can be empty string
+    show_default=True,
+    help=f"Comma-separated list of acronyms to preserve during TTS (Kokoro TTS). (Env: TTS_ACRONYM_PRESERVE_LIST)",
+)
+def main(
+    host: str,
+    port: int,
+    verbose: bool,
+    browser: bool,
+    system_message: Optional[str],
+    llm_host: Optional[str],
+    llm_port: Optional[str],
+    llm_model: str,
+    llm_api_key: Optional[str],
+    stt_host: str,
+    stt_port: str,
+    stt_model: str,
+    stt_language: Optional[str],
+    stt_api_key: Optional[str],
+    stt_no_speech_prob_threshold: float,
+    stt_avg_logprob_threshold: float,
+    stt_min_words_threshold: int,
+    tts_host: str,
+    tts_port: str,
+    tts_model: str,
+    tts_voice: str,
+    tts_api_key: Optional[str],
+    tts_speed: float,
+    tts_acronym_preserve_list: str,
+) -> int:
     """Main function to parse arguments, set up, and run the application."""
     # Access global runtime state variables (not config)
     global uvicorn_server, pywebview_window
 
     # --- Record Startup Time ---
     startup_time = datetime.datetime.now()
-    # Store in settings later, use a local var for now
     startup_timestamp_str_local = startup_time.strftime("%Y%m%d_%H%M%S")
 
-    # --- Argument Parsing ---
-    parser = argparse.ArgumentParser(
-        description="Run a simple voice chat interface using a configurable LLM provider, STT server, and TTS."
-    )
-
-    # --- General Arguments ---
-    parser.add_argument(
-        "--host",
-        type=str,
-        default="127.0.0.1",
-        help="Host address to bind the FastAPI server to. Default: 127.0.0.1",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=int(APP_PORT_ENV),  # Default from env
-        help=f"Preferred port to run the FastAPI server on. Default: {APP_PORT_ENV}. (Env: APP_PORT)",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging (DEBUG level)",
-    )
-    parser.add_argument(
-        "--browser",
-        action="store_true",
-        default=False,
-        help="Launch the application in the default web browser instead of a dedicated GUI window. Default: False",
-    )
-    parser.add_argument(
-        "--system-message",
-        type=str,
-        default=SYSTEM_MESSAGE_ENV,  # Default from env (can be None)
-        help=f"System message to prepend to the chat history. Default: (from SYSTEM_MESSAGE env var, empty if unset).",
-    )
-
-    # --- LLM Arguments ---
-    parser.add_argument(
-        "--llm-host",
-        type=str,
-        default=LLM_HOST_ENV, # Default from env
-        help="Host address of the LLM proxy server (optional). Default: None. (Env: LLM_HOST)",
-    )
-    parser.add_argument(
-        "--llm-port",
-        type=str, # Read as string, convert later if needed
-        default=LLM_PORT_ENV, # Default from env
-        help="Port of the LLM proxy server (optional). Default: None. (Env: LLM_PORT)",
-    )
-    parser.add_argument(
-        "--llm-model",
-        type=str,
-        default=DEFAULT_LLM_MODEL_ENV, # Default from env
-        help=f"Default LLM model to use (e.g., 'gpt-4o', 'litellm_proxy/claude-3-opus'). Default: '{DEFAULT_LLM_MODEL_ENV}'. (Env: LLM_MODEL)",
-    )
-    parser.add_argument(
-        "--llm-api-key",
-        type=str,
-        default=LLM_API_KEY_ENV, # Default from env
-        help="API key for the LLM provider/proxy (optional, depends on setup). Default: None. (Env: LLM_API_KEY)",
-    )
-
-    # --- STT Arguments ---
-    parser.add_argument(
-        "--stt-host",
-        type=str,
-        default=STT_HOST_ENV,  # Default from env (now api.openai.com)
-        help=f"Host address of the STT server (e.g., 'api.openai.com' or 'localhost'). Default: '{STT_HOST_ENV}'. (Env: STT_HOST)",
-    )
-    parser.add_argument(
-        "--stt-port",
-        type=str,  # Read as string, convert later
-        default=STT_PORT_ENV,  # Default from env (now 443)
-        help=f"Port of the STT server (e.g., 443 for OpenAI, 8002 for local). Default: '{STT_PORT_ENV}'. (Env: STT_PORT)",
-    )
-    parser.add_argument(
-        "--stt-model",
-        type=str,
-        default=STT_MODEL_ENV,  # Default from env (now whisper-1)
-        help=f"STT model to use (e.g., 'whisper-1' for OpenAI, 'deepdml/faster-whisper-large-v3-turbo-ct2' for local). Default: '{STT_MODEL_ENV}'. (Env: STT_MODEL)",
-    )
-    parser.add_argument(
-        "--stt-language",
-        type=str,
-        default=STT_LANGUAGE_ENV,  # Default from env
-        help="Language code for STT (e.g., 'en', 'fr'). If unset (empty string or not provided), Whisper usually auto-detects. Default: None. (Env: STT_LANGUAGE)",
-    )
-    parser.add_argument(
-        "--stt-api-key",
-        type=str,
-        default=STT_API_KEY_ENV,  # Default from env
-        help="API key for the STT server (REQUIRED for OpenAI STT). Default: None. (Env: STT_API_KEY)",
-    )
-    parser.add_argument(
-        "--stt-no-speech-prob-threshold",
-        type=float,
-        default=float(STT_NO_SPEECH_PROB_THRESHOLD_ENV),  # Default from env
-        help=f"STT confidence threshold: Reject if no_speech_prob is higher than this. Default: {STT_NO_SPEECH_PROB_THRESHOLD_ENV}. (Env: STT_NO_SPEECH_PROB_THRESHOLD)",
-    )
-    parser.add_argument(
-        "--stt-avg-logprob-threshold",
-        type=float,
-        default=float(STT_AVG_LOGPROB_THRESHOLD_ENV),  # Default from env
-        help=f"STT confidence threshold: Reject if avg_logprob is lower than this. Default: {STT_AVG_LOGPROB_THRESHOLD_ENV}. (Env: STT_AVG_LOGPROB_THRESHOLD)",
-    )
-    parser.add_argument(
-        "--stt-min-words-threshold",
-        type=int,
-        default=int(STT_MIN_WORDS_THRESHOLD_ENV),  # Default from env
-        help=f"STT confidence threshold: Reject if the number of words is less than this. Default: {STT_MIN_WORDS_THRESHOLD_ENV}. (Env: STT_MIN_WORDS_THRESHOLD)",
-    )
-
-    # --- TTS Arguments ---
-    parser.add_argument(
-        "--tts-host",
-        type=str,
-        default=TTS_HOST_ENV,  # Default from env (now api.openai.com)
-        help=f"Host address of the TTS server (e.g., 'api.openai.com' or 'localhost'). Default: '{TTS_HOST_ENV}'. (Env: TTS_HOST)",
-    )
-    parser.add_argument(
-        "--tts-port",
-        type=str,  # Read as string, convert later
-        default=TTS_PORT_ENV,  # Default from env (now 443)
-        help=f"Port of the TTS server (e.g., 443 for OpenAI, 8880 for local). Default: '{TTS_PORT_ENV}'. (Env: TTS_PORT)",
-    )
-    parser.add_argument(
-        "--tts-model",
-        type=str,
-        default=TTS_MODEL_ENV,  # Default from env (now tts-1)
-        help=f"TTS model to use (e.g., 'tts-1', 'tts-1-hd' for OpenAI, 'kokoro' for local). Default: '{TTS_MODEL_ENV}'. (Env: TTS_MODEL)",
-    )
-    parser.add_argument(
-        "--tts-voice",
-        type=str,
-        default=DEFAULT_VOICE_TTS_ENV,  # Default from env (now ash)
-        help=f"Default TTS voice to use (e.g., 'alloy', 'ash', 'echo' for OpenAI, 'ff_siwis' for local). Default: '{DEFAULT_VOICE_TTS_ENV}'. (Env: TTS_VOICE)",
-    )
-    parser.add_argument(
-        "--tts-api-key",
-        type=str,
-        default=TTS_API_KEY_ENV,  # Default from env
-        help="API key for the TTS server (REQUIRED for OpenAI TTS). Default: None. (Env: TTS_API_KEY)",
-    )
-    parser.add_argument(
-        "--tts-speed",
-        type=float,
-        default=float(DEFAULT_TTS_SPEED_ENV),  # Default from env
-        help=f"Default TTS speed multiplier. Default: {DEFAULT_TTS_SPEED_ENV}. (Env: TTS_SPEED)",
-    )
-    parser.add_argument(
-        "--tts-acronym-preserve-list",
-        type=str,
-        default=TTS_ACRONYM_PRESERVE_LIST_ENV,  # Default from env
-        help=f"Comma-separated list of acronyms to preserve during TTS (currently only used for Kokoro TTS). Default: '{TTS_ACRONYM_PRESERVE_LIST_ENV}'. (Env: TTS_ACRONYM_PRESERVE_LIST)",
-    )
-
-    parsed_args = parser.parse_args()
+    # --- Argument Parsing is now handled by Click decorators ---
 
     # --- Apply Argument Values to Global Configuration ---
-    # Instead of globals, populate the 'settings' object from config.py
-
     settings.startup_timestamp_str = startup_timestamp_str_local
 
     # General
-    settings.preferred_port = parsed_args.port
-    settings.host = parsed_args.host # Keep host from args
-    settings.verbose = parsed_args.verbose
-    settings.browser = parsed_args.browser
-    system_message_arg = parsed_args.system_message
-    settings.system_message = system_message_arg.strip() if system_message_arg is not None else ""
+    settings.preferred_port = port
+    settings.host = host
+    settings.verbose = verbose
+    settings.browser = browser
+    settings.system_message = system_message.strip() if system_message is not None else ""
 
     # LLM Configuration
-    settings.llm_host_arg = parsed_args.llm_host
-    settings.llm_port_arg = parsed_args.llm_port
-    settings.llm_model_arg = parsed_args.llm_model
-    settings.llm_api_key = parsed_args.llm_api_key
+    settings.llm_host_arg = llm_host
+    settings.llm_port_arg = llm_port
+    settings.llm_model_arg = llm_model
+    settings.llm_api_key = llm_api_key
 
     settings.use_llm_proxy = bool(settings.llm_host_arg and settings.llm_port_arg)
     if settings.use_llm_proxy:
@@ -1401,7 +1456,6 @@ def main() -> int:
             llm_port_int = int(settings.llm_port_arg)
             settings.llm_api_base = f"http://{settings.llm_host_arg}:{llm_port_int}/v1"
         except (ValueError, TypeError):
-            # Use print for early errors before logger is fully set up
             print(
                 f"Error: Invalid LLM port specified: '{settings.llm_port_arg}'. Disabling proxy.", file=sys.stderr
             )
@@ -1410,21 +1464,18 @@ def main() -> int:
     else:
         settings.llm_api_base = None
 
-    # STT Configuration (Revised Logic)
-    settings.stt_host_arg = parsed_args.stt_host
-    settings.stt_port_arg = parsed_args.stt_port
-    settings.stt_model_arg = parsed_args.stt_model
-    settings.stt_language_arg = parsed_args.stt_language
-    settings.stt_api_key = parsed_args.stt_api_key
-    settings.stt_no_speech_prob_threshold = parsed_args.stt_no_speech_prob_threshold
-    settings.stt_avg_logprob_threshold = parsed_args.stt_avg_logprob_threshold
-    settings.stt_min_words_threshold = parsed_args.stt_min_words_threshold
+    # STT Configuration
+    settings.stt_host_arg = stt_host
+    settings.stt_port_arg = stt_port
+    settings.stt_model_arg = stt_model
+    settings.stt_language_arg = stt_language
+    settings.stt_api_key = stt_api_key
+    settings.stt_no_speech_prob_threshold = stt_no_speech_prob_threshold
+    settings.stt_avg_logprob_threshold = stt_avg_logprob_threshold
+    settings.stt_min_words_threshold = stt_min_words_threshold
 
-    # Determine if using OpenAI STT based on host
     settings.is_openai_stt = settings.stt_host_arg == "api.openai.com"
-
     if settings.is_openai_stt:
-        # Special case for OpenAI API
         settings.stt_api_base = "https://api.openai.com/v1"
         if not settings.stt_api_key:
             print(
@@ -1433,38 +1484,31 @@ def main() -> int:
             )
             return 1
     else:
-        # Assume local or other custom server
         try:
             stt_port_int = int(settings.stt_port_arg)
-            # Assume http for non-OpenAI servers
             scheme = "http"
             settings.stt_api_base = f"{scheme}://{settings.stt_host_arg}:{stt_port_int}/v1"
-            # API key might be optional for custom servers
             if not settings.stt_api_key:
                 print(
                     f"Warning: No STT API key provided for custom server at {settings.stt_api_base}. Assuming it's not needed.", file=sys.stderr
                 )
-
         except (ValueError, TypeError):
             print(
                 f"Critical Error: Invalid STT port specified for custom server: '{settings.stt_port_arg}'. Cannot connect. Exiting.", file=sys.stderr
             )
             return 1
 
-    # TTS Configuration (Revised Logic)
-    settings.tts_host_arg = parsed_args.tts_host
-    settings.tts_port_arg = parsed_args.tts_port
-    settings.tts_model_arg = parsed_args.tts_model
-    settings.tts_voice_arg = parsed_args.tts_voice # Initial preference
-    settings.tts_api_key = parsed_args.tts_api_key
-    settings.tts_speed_arg = parsed_args.tts_speed # Initial preference
-    settings.tts_acronym_preserve_list_arg = parsed_args.tts_acronym_preserve_list
+    # TTS Configuration
+    settings.tts_host_arg = tts_host
+    settings.tts_port_arg = tts_port
+    settings.tts_model_arg = tts_model
+    settings.tts_voice_arg = tts_voice
+    settings.tts_api_key = tts_api_key
+    settings.tts_speed_arg = tts_speed
+    settings.tts_acronym_preserve_list_arg = tts_acronym_preserve_list
 
-    # Determine if using OpenAI TTS based on host
     settings.is_openai_tts = settings.tts_host_arg == "api.openai.com"
-
     if settings.is_openai_tts:
-        # Special case for OpenAI API
         settings.tts_base_url = "https://api.openai.com/v1"
         if not settings.tts_api_key:
             print(
@@ -1473,39 +1517,32 @@ def main() -> int:
             )
             return 1
     else:
-        # Assume local or other custom server
         try:
             tts_port_int = int(settings.tts_port_arg)
-            # Assume http for non-OpenAI servers unless port is 443? Let's default to http.
             scheme = "http"
-            # Allow overriding scheme via host? No, keep it simple for now.
             settings.tts_base_url = f"{scheme}://{settings.tts_host_arg}:{tts_port_int}/v1"
-            # API key might be optional for custom servers
             if not settings.tts_api_key:
                 print(
                     f"Warning: No TTS API key provided for custom server at {settings.tts_base_url}. Assuming it's not needed.", file=sys.stderr
                 )
-
         except (ValueError, TypeError):
             print(
                 f"Critical Error: Invalid TTS port specified for custom server: '{settings.tts_port_arg}'. Cannot connect. Exiting.", file=sys.stderr
             )
             return 1
 
-    # TTS Acronyms
     settings.tts_acronym_preserve_set = {
         word.strip().upper()
         for word in settings.tts_acronym_preserve_list_arg.split(",")
         if word.strip()
     }
-    # Set initial TTS speed from args
     settings.current_tts_speed = settings.tts_speed_arg
 
     # --- Logging Configuration using external setup function ---
     console_log_level_str = "DEBUG" if settings.verbose else "INFO"
     
     log_file_path_for_setup: Optional[Path] = None
-    log_dir_creation_error_details: Optional[str] = None # To store error details for logging after setup
+    log_dir_creation_error_details: Optional[str] = None 
 
     try:
         app_name = "SimpleVoiceChat"
@@ -1515,7 +1552,6 @@ def main() -> int:
         try:
             log_base_dir_path_str = platformdirs.user_log_dir(app_name, app_author)
         except Exception as e_log_dir:
-            # Print to stderr as logger might not be configured yet.
             print(f"Warning: Could not find user log directory ({e_log_dir}), falling back to user data directory for logs.", file=sys.stderr)
             try:
                 log_base_dir_path_str = platformdirs.user_data_dir(app_name, app_author)
@@ -1528,7 +1564,7 @@ def main() -> int:
             settings.app_log_dir = log_base_dir / "logs"
             settings.app_log_dir.mkdir(parents=True, exist_ok=True)
             log_file_path_for_setup = settings.app_log_dir / f"log_{settings.startup_timestamp_str}.log"
-        elif not log_dir_creation_error_details: # If path_str is None but no specific error was caught for data_dir
+        elif not log_dir_creation_error_details: 
             log_dir_creation_error_details = "Failed to determine a valid base directory for logs."
             print(f"Error: {log_dir_creation_error_details} File logging will be disabled.", file=sys.stderr)
             
@@ -1536,38 +1572,29 @@ def main() -> int:
         log_dir_creation_error_details = f"Failed to set up log directory structure: {e}."
         print(f"Error: {log_dir_creation_error_details} File logging will be disabled.", file=sys.stderr)
 
-    # Call the centralized logging setup function
-    # Pass settings.verbose for verbose_mode argument
     setup_logging(console_log_level_str, log_file_path_for_setup, settings.verbose)
 
-    # Log any directory creation errors using the now-configured logger
     if log_dir_creation_error_details:
         logger.error(f"Log directory setup failed: {log_dir_creation_error_details} File logging is disabled.")
-    # The message "Logging to file: ..." is now handled by setup_logging if successful.
 
-    # Intercept standard logging messages
-    # Set levels for libraries more finely if needed after interception
     logger.debug(
         f"Loaded TTS_ACRONYM_PRESERVE_SET: {settings.tts_acronym_preserve_set}"
-    )  # Log the loaded set
+    )
 
     # --- Setup Chat Log Directory ---
     try:
-        # Use platformdirs to find appropriate user data directory
-        app_name = "SimpleVoiceChat"  # Application name
-        app_author = "Attila"  # Optional: Author name
+        app_name = "SimpleVoiceChat"
+        app_author = "Attila"
         user_data_dir = Path(platformdirs.user_data_dir(app_name, app_author))
         settings.chat_log_dir = user_data_dir / "chats"
-        settings.chat_log_dir.mkdir(parents=True, exist_ok=True)  # Create dir if not exists
+        settings.chat_log_dir.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Chat log directory set to: {settings.chat_log_dir}")
     except Exception as e:
         logger.error(f"Failed to create chat log directory: {e}. Chat logging disabled.")
-        settings.chat_log_dir = None  # Disable logging if directory creation fails
+        settings.chat_log_dir = None
 
     # --- Setup Temporary TTS Audio Directory ---
     try:
-        # Create a unique, persistent directory for this run's TTS files
-        # Use platformdirs user_cache_dir as a base
         app_name = "SimpleVoiceChat"
         app_author = "Attila"
         try:
@@ -1576,29 +1603,25 @@ def main() -> int:
             logger.warning("Could not find user cache directory, falling back to user data directory for TTS audio.")
             cache_base_dir = Path(platformdirs.user_data_dir(app_name, app_author))
 
-        # Store the base directory containing all run-specific TTS dirs
         settings.tts_base_dir = cache_base_dir / "tts_audio"
         settings.tts_base_dir.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Base TTS audio directory: {settings.tts_base_dir}")
 
-        # Create a unique subdirectory for this specific run using the timestamp
         settings.tts_audio_dir = settings.tts_base_dir / settings.startup_timestamp_str
-        settings.tts_audio_dir.mkdir(exist_ok=True) # Create the run-specific dir
+        settings.tts_audio_dir.mkdir(exist_ok=True)
         logger.info(f"This run's TTS audio directory: {settings.tts_audio_dir}")
-        # Note: We are NOT cleaning this up automatically on exit. Files persist.
-        # Manual cleanup or a separate cleanup script might be needed later.
 
     except Exception as e:
         logger.error(f"Failed to create temporary TTS audio directory: {e}. TTS audio saving might fail.")
-        return 1 # Exit if we can't create any temp dir
+        return 1
 
     # --- Log Final Configuration ---
-    logger.info(f"Logging level set to: {console_log_level_str}") # Use the string determined for console
+    logger.info(f"Logging level set to: {console_log_level_str}")
     logger.info(f"Application Version: {APP_VERSION}")
     logger.info(f"Application server host: {settings.host}")
     logger.info(
         f"Application server preferred port: {settings.preferred_port}"
-    ) # Log preferred, actual might change
+    )
     if settings.use_llm_proxy:
         logger.info(f"Using LLM proxy at: {settings.llm_api_base}")
         if settings.llm_api_key:
@@ -1614,7 +1637,6 @@ def main() -> int:
                 "Using LLM API key provided (for direct routing)."
             )
 
-    # Log STT config based on type
     if settings.is_openai_stt:
         logger.info(f"Using OpenAI STT at: {settings.stt_api_base}")
         logger.info(f"Using STT model: {settings.stt_model_arg}")
@@ -1627,7 +1649,6 @@ def main() -> int:
         else:
             logger.info("No STT API key provided (assumed optional for custom server).")
 
-    # Set global current_stt_language based on args
     if settings.stt_language_arg:
         logger.info(f"Using STT language: {settings.stt_language_arg}")
         settings.current_stt_language = settings.stt_language_arg
@@ -1638,14 +1659,12 @@ def main() -> int:
         f"STT Confidence Thresholds: no_speech_prob > {settings.stt_no_speech_prob_threshold}, avg_logprob < {settings.stt_avg_logprob_threshold}, min_words < {settings.stt_min_words_threshold}"
     )
 
-    # Log TTS config based on type
     if settings.is_openai_tts:
         logger.info(f"Using OpenAI TTS at: {settings.tts_base_url}")
         logger.info(f"Using TTS model: {settings.tts_model_arg}")
         logger.info(f"Default TTS voice: {settings.tts_voice_arg}")
-        logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}") # Log initial speed
+        logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}")
         logger.info("Using TTS API key provided (Required for OpenAI).")
-        # Log OpenAI TTS pricing being used
         if settings.tts_model_arg in OPENAI_TTS_PRICING:
             logger.info(
                 f"OpenAI TTS pricing for '{settings.tts_model_arg}': ${OPENAI_TTS_PRICING[settings.tts_model_arg]:.2f} / 1M chars"
@@ -1658,7 +1677,7 @@ def main() -> int:
         logger.info(f"Using Custom TTS server at: {settings.tts_base_url}")
         logger.info(f"Using TTS model: {settings.tts_model_arg}")
         logger.info(f"Default TTS voice: {settings.tts_voice_arg}")
-        logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}") # Log initial speed
+        logger.info(f"Initial TTS speed: {settings.current_tts_speed:.1f}")
         if settings.tts_api_key:
             logger.info("Using TTS API key provided.")
         else:
@@ -1678,14 +1697,12 @@ def main() -> int:
     else:
         settings.available_models, settings.model_cost_data = get_models_and_costs_from_litellm()
 
-    # Fallback if no models were found
     if not settings.available_models:
         logger.warning(
             "No models found from proxy or litellm.model_cost. Using fallback."
         )
         settings.available_models = ["fallback/unknown-model"]
 
-    # Determine the initial model using settings.llm_model_arg as the preference
     initial_model_preference = settings.llm_model_arg
     if initial_model_preference and initial_model_preference in settings.available_models:
         settings.current_llm_model = initial_model_preference
@@ -1693,23 +1710,22 @@ def main() -> int:
             f"Using LLM model from --llm-model argument (or env default): {settings.current_llm_model}"
         )
     elif settings.available_models and settings.available_models[0] != "fallback/unknown-model":
-        if initial_model_preference: # Log if the preferred wasn't found
+        if initial_model_preference:
             logger.warning(
                 f"LLM model '{initial_model_preference}' from --llm-model (or env default) not found in available list {settings.available_models}. Trying first available model."
             )
         settings.current_llm_model = settings.available_models[0]
         logger.info(f"Using first available model: {settings.current_llm_model}")
-    elif initial_model_preference: # Use preferred even if not in list, but warn
+    elif initial_model_preference:
         settings.current_llm_model = initial_model_preference
         logger.warning(
             f"Model '{settings.current_llm_model}' from --llm-model (or env default) not found in available list, but using it as requested. Cost calculation might fail."
         )
-    else: # No preference and no available models
+    else:
         settings.current_llm_model = "fallback/unknown-model"
         logger.error(
             "No valid LLM models available or specified. Functionality may be impaired."
         )
-        # Consider exiting: return 1
 
     logger.info(f"Initial LLM model set to: {settings.current_llm_model}")
 
@@ -1719,17 +1735,11 @@ def main() -> int:
             base_url=settings.tts_base_url,
             api_key=settings.tts_api_key,
         )
-        # Perform a simple check if using OpenAI to validate the API key early
         if settings.is_openai_tts:
             try:
-                # Try listing models as a simple auth check (adjust if needed)
-                # Note: OpenAI Python v1+ doesn't have a simple 'list voices' or similar lightweight check easily available
-                # We might rely on the first TTS call to fail if the key is bad.
-                # Or, attempt a low-cost operation if available. For now, we'll let the first TTS call handle auth errors.
                 logger.info(
                     "OpenAI TTS client initialized. API key will be validated on first use."
                 )
-                # No simple validation call, will be caught on first use.
             except AuthenticationError as e:
                 logger.critical(
                     f"OpenAI API key is invalid: {e}. Please check TTS_API_KEY. Exiting."
@@ -1739,7 +1749,6 @@ def main() -> int:
                 logger.warning(
                     f"Could not perform initial validation of OpenAI API key: {e}"
                 )
-
     except Exception as e:
         logger.critical(f"Failed to initialize TTS client: {e}. Exiting.")
         return 1
@@ -1749,17 +1758,11 @@ def main() -> int:
             base_url=settings.stt_api_base,
             api_key=settings.stt_api_key,
         )
-        # Perform a simple check if using OpenAI to validate the API key early
         if settings.is_openai_stt:
             try:
-                # Try listing models as a simple auth check (adjust if needed)
-                # Note: OpenAI Python v1+ doesn't have a simple 'list voices' or similar lightweight check easily available
-                # We might rely on the first STT call to fail if the key is bad.
-                # Or, attempt a low-cost operation if available. For now, we'll let the first STT call handle auth errors.
                 logger.info(
                     "OpenAI STT client initialized. API key will be validated on first use."
                 )
-                # No simple validation call.
             except AuthenticationError as e:
                 logger.critical(
                     f"OpenAI API key is invalid: {e}. Please check STT_API_KEY. Exiting."
@@ -1769,18 +1772,15 @@ def main() -> int:
                 logger.warning(
                     f"Could not perform initial validation of OpenAI API key: {e}"
                 )
-
     except Exception as e:
         logger.critical(f"Failed to initialize STT client: {e}. Exiting.")
         return 1
 
     # --- Populate Available Voices (Revised Logic) ---
     if settings.is_openai_tts:
-        # Use the predefined list for OpenAI
         settings.available_voices_tts = OPENAI_TTS_VOICES
         logger.info(f"Using predefined OpenAI TTS voices: {settings.available_voices_tts}")
     else:
-        # Use the get_voices function for custom servers
         logger.info(
             f"Querying custom TTS server ({settings.tts_base_url}) for available voices..."
         )
@@ -1794,7 +1794,6 @@ def main() -> int:
                 f"Available voices from custom TTS server: {settings.available_voices_tts}"
             )
 
-    # Validate the initial current_tts_voice using settings.tts_voice_arg as the preference
     initial_voice_preference = settings.tts_voice_arg
     if initial_voice_preference and initial_voice_preference in settings.available_voices_tts:
         settings.current_tts_voice = initial_voice_preference
@@ -1802,19 +1801,17 @@ def main() -> int:
             f"Using TTS voice from --tts-voice argument (or env default): {settings.current_tts_voice}"
         )
     elif settings.available_voices_tts:
-        if initial_voice_preference: # Log if preferred wasn't found
+        if initial_voice_preference:
             logger.warning(
                 f"TTS voice '{initial_voice_preference}' from --tts-voice (or env default) not found in available voices: {settings.available_voices_tts}. Trying first available voice."
             )
         settings.current_tts_voice = settings.available_voices_tts[0]
         logger.info(f"Using first available voice instead: {settings.current_tts_voice}")
     else:
-        # No voices available OR preferred voice invalid and no others available
-        settings.current_tts_voice = initial_voice_preference  # Keep the potentially invalid one
+        settings.current_tts_voice = initial_voice_preference
         logger.error(
             f"No voices available from TTS engine, or specified voice '{settings.current_tts_voice}' is invalid. TTS will likely fail."
         )
-        # If using OpenAI and the default 'ash' wasn't found (which shouldn't happen unless OPENAI_TTS_VOICES is wrong)
         if settings.is_openai_tts and settings.current_tts_voice not in OPENAI_TTS_VOICES:
             logger.critical(
                 f"Specified OpenAI voice '{settings.current_tts_voice}' is not valid. Valid options: {OPENAI_TTS_VOICES}. Exiting."
@@ -1829,29 +1826,19 @@ def main() -> int:
         mode="send-receive",
         handler=ReplyOnPause(
             response,
-            # --- VAD Tuning Parameters (Adjusted for LESS sensitivity in noisy environments) ---
             algo_options=AlgoOptions(
-                # Duration of audio chunks processed by VAD (seconds). Default: 0.6
                 audio_chunk_duration=3.0,
-                # Probability threshold to consider speech *started*. Default: 0.2
                 started_talking_threshold=0.2,
-                # Probability threshold to consider a chunk *as speech*. Lower values bridge pauses better. Default: 0.1
-                speech_threshold=0.2,  # Decreased further from 0.1 to bridge pauses even more effectively
+                speech_threshold=0.2,
             ),
             model_options=SileroVadOptions(
-                # VAD model's internal speech probability threshold. Higher values make it less sensitive to noise. Default: 0.5
-                threshold=0.6, # Increased from 0.5 to reduce sensitivity
-                # Minimum duration of speech to be considered valid (milliseconds). Higher values ignore short sounds like coughs. Default: 250
-                min_speech_duration_ms=800,  # Increased from 400 to reduce interruptions from short sounds/noise
-                # Minimum duration of silence after speech to trigger pause (milliseconds). Higher values allow longer pauses. Default: 100
-                min_silence_duration_ms=3500,  # Increased from 2500 to allow longer pauses
+                threshold=0.6,
+                min_speech_duration_ms=800,
+                min_silence_duration_ms=3500,
             ),
-            can_interrupt=True,  # Default: Allow interrupting the bot's response
-            # startup_fn=None,    # Default: No function called on connection start
+            can_interrupt=True,
         ),
         track_constraints={
-            # default values, be left as useful to know about
-            # source: https://fastrtc.org/faq/
             "echoCancellation": True,
             "noiseSuppression": {"exact": True},
             "autoGainControl": {"exact": True},
@@ -1866,70 +1853,64 @@ def main() -> int:
 
     app = FastAPI()
     stream.mount(app)
-    register_endpoints(app, stream)  # Register the endpoints defined above
+    register_endpoints(app, stream)
 
     # --- Server and UI Launch ---
-    host = settings.host # Use host from settings (which came from args)
-    preferred_port = settings.preferred_port # Use preferred_port from settings
-    port = preferred_port
+    # Use host and port from settings (which came from click parameters)
+    current_host = settings.host 
+    preferred_port_val = settings.preferred_port
+    actual_port = preferred_port_val
     max_retries = 10
 
-    # Check if the *preferred* port is available
-    if is_port_in_use(port, host):
+    if is_port_in_use(actual_port, current_host):
         logger.warning(
-            f"Preferred port {port} on host {host} is in use. Searching for an available port..."
+            f"Preferred port {actual_port} on host {current_host} is in use. Searching for an available port..."
         )
         found_port = False
         for attempt in range(max_retries):
-            # Only search on the specified host
             new_port = random.randint(1024, 65535)
-            logger.debug(f"Attempt {attempt+1}: Checking port {new_port} on {host}...")
-            if not is_port_in_use(new_port, host):
-                port = new_port
+            logger.debug(f"Attempt {attempt+1}: Checking port {new_port} on {current_host}...")
+            if not is_port_in_use(new_port, current_host):
+                actual_port = new_port
                 found_port = True
-                logger.info(f"Found available port: {port} on host {host}")
+                logger.info(f"Found available port: {actual_port} on host {current_host}")
                 break
         if not found_port:
             logger.error(
-                f"Could not find an available port on host {host} after {max_retries} attempts. Exiting."
+                f"Could not find an available port on host {current_host} after {max_retries} attempts. Exiting."
             )
             return 1
     else:
-        logger.info(f"Using preferred port {port} on host {host}")
+        logger.info(f"Using preferred port {actual_port} on host {current_host}")
 
-    # Update settings.port with the actual port being used
-    settings.port = port
-    url = f"http://{host}:{port}"
+    settings.port = actual_port # Update settings with the actual port being used
+    url = f"http://{current_host}:{actual_port}"
 
     def run_server():
         global uvicorn_server
         try:
-            # Use host and port variables determined above
             config = uvicorn.Config(
                 app,
-                host=host,
-                port=port,
-                log_config=None,  # Use determined host and port
+                host=current_host, # Use determined host
+                port=actual_port,   # Use determined port
+                log_config=None,
             )
             uvicorn_server = uvicorn.Server(config)
-            logger.info(f"Starting Uvicorn server on {host}:{port}...")
-            uvicorn_server.run()  # This blocks until shutdown is triggered
+            logger.info(f"Starting Uvicorn server on {current_host}:{actual_port}...")
+            uvicorn_server.run()
             logger.info("Uvicorn server has stopped.")
         except Exception as e:
             logger.critical(f"Uvicorn server encountered an error: {e}")
         finally:
-            uvicorn_server = None  # Clear the global reference
+            uvicorn_server = None
 
-    # Start the heartbeat monitor thread
     monitor_thread = threading.Thread(target=monitor_heartbeat_thread, daemon=True)
     monitor_thread.start()
 
-    # Start the Uvicorn server thread
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
 
     logger.debug("Waiting for Uvicorn server to initialize...")
-    # Wait a bit longer to ensure the server object is likely created
     time.sleep(3.0)
 
     if not server_thread.is_alive() or uvicorn_server is None:
@@ -1940,27 +1921,22 @@ def main() -> int:
     else:
         logger.debug("Server thread appears to be running.")
 
-    exit_code = 0  # Default exit code
+    exit_code = 0
     try:
         if settings.browser:
             logger.info(f"Opening application in default web browser at: {url}")
-            webbrowser.open(url, new=1)  # Open in a new window
+            webbrowser.open(url, new=1)
             logger.info(
                 "Application opened in browser. Server is running in the background."
             )
             logger.info("Press Ctrl+C to stop the server.")
-            # Keep the main thread alive to allow the daemon server thread to run
             try:
-                # Wait indefinitely for the server thread to finish (it won't unless interrupted)
                 server_thread.join()
             except KeyboardInterrupt:
                 logger.info("KeyboardInterrupt received, shutting down.")
             finally:
-                # Signal the heartbeat monitor thread to stop
                 logger.info("Signaling heartbeat monitor thread to stop...")
                 shutdown_event.set()
-
-                # Signal the Uvicorn server to shut down if it's still running (might be redundant)
                 if (
                     uvicorn_server
                     and server_thread.is_alive()
@@ -1976,8 +1952,6 @@ def main() -> int:
                     logger.warning(
                         "Uvicorn server instance not found, cannot signal shutdown."
                     )
-
-                # Wait for the server thread to finish after signaling (if it was running)
                 if server_thread.is_alive():
                     logger.info("Waiting for Uvicorn server thread to join...")
                     server_thread.join(timeout=5.0)
@@ -1987,8 +1961,6 @@ def main() -> int:
                         )
                     else:
                         logger.info("Uvicorn server thread joined successfully.")
-
-                # Wait for the monitor thread to finish
                 logger.info("Waiting for heartbeat monitor thread to join...")
                 monitor_thread.join(timeout=2.0)
                 if monitor_thread.is_alive():
@@ -1997,18 +1969,12 @@ def main() -> int:
                     )
                 else:
                     logger.info("Heartbeat monitor thread joined successfully.")
-        else:  # This else belongs to the if settings.browser block
+        else:
             logger.info(f"Creating pywebview window for URL: {url}")
-            api = Api(None)  # pywebview API instance
-
-            # --- Pywebview Settings ---
-            # Disable automatic opening of DevTools when debug=True
-            # This allows enabling debug mode always, but requires manual opening (e.g., right-click)
+            api = Api(None)
             webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
             logger.info(f"pywebview setting OPEN_DEVTOOLS_IN_DEBUG set to False.")
-            # --- End Pywebview Settings ---
-
-            # Store window object globally for monitor thread access
+            
             pywebview_window = webview.create_window(
                 f"Simple Voice Chat v{APP_VERSION}",
                 url,
@@ -2016,24 +1982,18 @@ def main() -> int:
                 height=800,
                 js_api=api,
             )
-            api._window = pywebview_window # Pass window object to API class instance
+            api._window = pywebview_window
 
             logger.info("Starting pywebview...")
             try:
-                # This blocks until the window is closed
-                # Always enable debug mode internally, but disable auto-open via settings above.
-                # Explicitly set gui='qt' to ensure WebRTC compatibility
                 webview.start(debug=True, gui='qt')
             except Exception as e:
                 logger.critical(f"Pywebview encountered an error: {e}")
-                exit_code = 1  # Set error code
+                exit_code = 1
             finally:
                 logger.info("Pywebview window closed or heartbeat timed out.")
-                # Signal the heartbeat monitor thread to stop
                 logger.info("Signaling heartbeat monitor thread to stop...")
                 shutdown_event.set()
-
-                # Signal the Uvicorn server to shut down (might be redundant if heartbeat timed out)
                 if uvicorn_server and not uvicorn_server.should_exit:
                     logger.info("Signaling Uvicorn server to shut down...")
                     uvicorn_server.should_exit = True
@@ -2043,8 +2003,6 @@ def main() -> int:
                     logger.warning(
                         "Uvicorn server instance not found, cannot signal shutdown."
                     )
-
-                # Wait for the server thread to finish
                 logger.info("Waiting for Uvicorn server thread to join...")
                 server_thread.join(timeout=5.0)
                 if server_thread.is_alive():
@@ -2053,8 +2011,6 @@ def main() -> int:
                     )
                 else:
                     logger.info("Uvicorn server thread joined successfully.")
-
-                # Wait for the monitor thread to finish
                 logger.info("Waiting for heartbeat monitor thread to join...")
                 monitor_thread.join(timeout=2.0)
                 if monitor_thread.is_alive():
@@ -2068,14 +2024,11 @@ def main() -> int:
             f"An unexpected error occurred in the main execution block: {e}",
             exc_info=True,
         )
-        exit_code = 1  # Set error code
-        # Ensure shutdown signals are sent even on unexpected main errors
+        exit_code = 1
         shutdown_event.set()
         if uvicorn_server and not uvicorn_server.should_exit:
             uvicorn_server.should_exit = True
-        # Wait for threads? Maybe not necessary if exiting immediately.
 
     logger.info(f"Main function returning exit code: {exit_code}")
     return exit_code
-
 

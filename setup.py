@@ -38,6 +38,7 @@ setuptools.setup(
 
     # Dependencies are now listed directly here
     install_requires=[
+        "click>=8.0", # Added click
         "qtpy>=2.4.3",
         "filelock>=3.18.0",
         "fastrtc[vad,tts]>=0.0.23",

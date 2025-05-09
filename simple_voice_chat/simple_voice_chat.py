@@ -84,6 +84,7 @@ from .utils.llms import (
 )
 from .utils.misc import is_port_in_use
 from .utils.stt import transcribe_audio, check_stt_confidence
+from .logging_config import setup_logging
 
 # --- Global Variables (Runtime State - Not Configuration) ---
 # These are primarily for managing the server and UI state, not app settings.
@@ -1400,8 +1401,9 @@ def main() -> int:
             llm_port_int = int(settings.llm_port_arg)
             settings.llm_api_base = f"http://{settings.llm_host_arg}:{llm_port_int}/v1"
         except (ValueError, TypeError):
-            logger.error(
-                f"Invalid LLM port specified: '{settings.llm_port_arg}'. Disabling proxy."
+            # Use print for early errors before logger is fully set up
+            print(
+                f"Error: Invalid LLM port specified: '{settings.llm_port_arg}'. Disabling proxy.", file=sys.stderr
             )
             settings.use_llm_proxy = False
             settings.llm_api_base = None
@@ -1425,9 +1427,9 @@ def main() -> int:
         # Special case for OpenAI API
         settings.stt_api_base = "https://api.openai.com/v1"
         if not settings.stt_api_key:
-            logger.critical(
-                "STT_API_KEY is required when using OpenAI STT (stt-host=api.openai.com). "
-                "Set the STT_API_KEY environment variable or provide --stt-api-key argument. Exiting."
+            print(
+                "Critical Error: STT_API_KEY is required when using OpenAI STT (stt-host=api.openai.com). "
+                "Set the STT_API_KEY environment variable or provide --stt-api-key argument. Exiting.", file=sys.stderr
             )
             return 1
     else:
@@ -1439,13 +1441,13 @@ def main() -> int:
             settings.stt_api_base = f"{scheme}://{settings.stt_host_arg}:{stt_port_int}/v1"
             # API key might be optional for custom servers
             if not settings.stt_api_key:
-                logger.warning(
-                    f"No STT API key provided for custom server at {settings.stt_api_base}. Assuming it's not needed."
+                print(
+                    f"Warning: No STT API key provided for custom server at {settings.stt_api_base}. Assuming it's not needed.", file=sys.stderr
                 )
 
         except (ValueError, TypeError):
-            logger.critical(
-                f"Invalid STT port specified for custom server: '{settings.stt_port_arg}'. Cannot connect. Exiting."
+            print(
+                f"Critical Error: Invalid STT port specified for custom server: '{settings.stt_port_arg}'. Cannot connect. Exiting.", file=sys.stderr
             )
             return 1
 
@@ -1465,9 +1467,9 @@ def main() -> int:
         # Special case for OpenAI API
         settings.tts_base_url = "https://api.openai.com/v1"
         if not settings.tts_api_key:
-            logger.critical(
-                "TTS_API_KEY is required when using OpenAI TTS (tts-host=api.openai.com). "
-                "Set the TTS_API_KEY environment variable or provide --tts-api-key argument. Exiting."
+            print(
+                "Critical Error: TTS_API_KEY is required when using OpenAI TTS (tts-host=api.openai.com). "
+                "Set the TTS_API_KEY environment variable or provide --tts-api-key argument. Exiting.", file=sys.stderr
             )
             return 1
     else:
@@ -1480,13 +1482,13 @@ def main() -> int:
             settings.tts_base_url = f"{scheme}://{settings.tts_host_arg}:{tts_port_int}/v1"
             # API key might be optional for custom servers
             if not settings.tts_api_key:
-                logger.warning(
-                    f"No TTS API key provided for custom server at {settings.tts_base_url}. Assuming it's not needed."
+                print(
+                    f"Warning: No TTS API key provided for custom server at {settings.tts_base_url}. Assuming it's not needed.", file=sys.stderr
                 )
 
         except (ValueError, TypeError):
-            logger.critical(
-                f"Invalid TTS port specified for custom server: '{settings.tts_port_arg}'. Cannot connect. Exiting."
+            print(
+                f"Critical Error: Invalid TTS port specified for custom server: '{settings.tts_port_arg}'. Cannot connect. Exiting.", file=sys.stderr
             )
             return 1
 
@@ -1499,66 +1501,49 @@ def main() -> int:
     # Set initial TTS speed from args
     settings.current_tts_speed = settings.tts_speed_arg
 
-    # --- Logging Configuration (Loguru) ---
-    # Setup logger *after* parsing verbose flag
-    logger.remove()  # Remove default handler
+    # --- Logging Configuration using external setup function ---
+    console_log_level_str = "DEBUG" if settings.verbose else "INFO"
+    
+    log_file_path_for_setup: Optional[Path] = None
+    log_dir_creation_error_details: Optional[str] = None # To store error details for logging after setup
 
-    log_level = "DEBUG" if settings.verbose else "INFO"
-    # Define console format based on level (with color)
-    log_format_debug_console = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-    log_format_info_console = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <level>{message}</level>"
-    log_format_console = log_format_debug_console if log_level == "DEBUG" else log_format_info_console
-
-    # Define file format (without color)
-    log_format_file = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}"
-
-    # Add console logger
-    logger.add(
-        sys.stderr,
-        level=log_level,
-        format=log_format_console,
-        colorize=True,
-        enqueue=True,
-        backtrace=settings.verbose,  # Enable backtrace only in verbose mode
-        diagnose=settings.verbose,  # Enable diagnose only in verbose mode
-    )
-
-    # --- Setup File Logging ---
     try:
-        # Use platformdirs to find appropriate user log directory
-        app_name = "SimpleVoiceChat"  # Application name
-        app_author = "Attila"  # Optional: Author name
-        # Prefer user_log_dir, fallback to user_data_dir if needed/unavailable
+        app_name = "SimpleVoiceChat"
+        app_author = "Attila"
+        log_base_dir_path_str: Optional[str] = None
+
         try:
-            log_base_dir = Path(platformdirs.user_log_dir(app_name, app_author))
-        except Exception: # Handle potential errors finding log dir
-             logger.warning("Could not find user log directory, falling back to user data directory for logs.")
-             log_base_dir = Path(platformdirs.user_data_dir(app_name, app_author))
-
-        settings.app_log_dir = log_base_dir / "logs"
-        settings.app_log_dir.mkdir(parents=True, exist_ok=True)  # Create dir if not exists
-
-        # Construct log file path using the startup timestamp
-        log_file_path = settings.app_log_dir / f"log_{settings.startup_timestamp_str}.log"
-
-        # Add file logger
-        logger.add(
-            log_file_path,
-            level="DEBUG", # Always log DEBUG level to file
-            format=log_format_file, # Use non-colored format
-            rotation="10 MB",  # Rotate log file when it reaches 10 MB
-            retention=5,  # Keep the last 5 log files
-            encoding="utf-8",
-            enqueue=True, # Recommended for performance
-            backtrace=True, # Always include backtrace in file logs
-            diagnose=True, # Always include diagnose info in file logs
-        )
-        # Log the path *after* adding the file sink (use debug level)
-        logger.debug(f"Logging to file: {log_file_path}")
-
+            log_base_dir_path_str = platformdirs.user_log_dir(app_name, app_author)
+        except Exception as e_log_dir:
+            # Print to stderr as logger might not be configured yet.
+            print(f"Warning: Could not find user log directory ({e_log_dir}), falling back to user data directory for logs.", file=sys.stderr)
+            try:
+                log_base_dir_path_str = platformdirs.user_data_dir(app_name, app_author)
+            except Exception as e_data_dir:
+                log_dir_creation_error_details = f"Could not find user data directory either ({e_data_dir})."
+                print(f"Error: {log_dir_creation_error_details} File logging will be disabled.", file=sys.stderr)
+        
+        if log_base_dir_path_str:
+            log_base_dir = Path(log_base_dir_path_str)
+            settings.app_log_dir = log_base_dir / "logs"
+            settings.app_log_dir.mkdir(parents=True, exist_ok=True)
+            log_file_path_for_setup = settings.app_log_dir / f"log_{settings.startup_timestamp_str}.log"
+        elif not log_dir_creation_error_details: # If path_str is None but no specific error was caught for data_dir
+            log_dir_creation_error_details = "Failed to determine a valid base directory for logs."
+            print(f"Error: {log_dir_creation_error_details} File logging will be disabled.", file=sys.stderr)
+            
     except Exception as e:
-        logger.error(f"Failed to set up file logging: {e}. File logging disabled.")
-        # Continue without file logging if setup fails
+        log_dir_creation_error_details = f"Failed to set up log directory structure: {e}."
+        print(f"Error: {log_dir_creation_error_details} File logging will be disabled.", file=sys.stderr)
+
+    # Call the centralized logging setup function
+    # Pass settings.verbose for verbose_mode argument
+    setup_logging(console_log_level_str, log_file_path_for_setup, settings.verbose)
+
+    # Log any directory creation errors using the now-configured logger
+    if log_dir_creation_error_details:
+        logger.error(f"Log directory setup failed: {log_dir_creation_error_details} File logging is disabled.")
+    # The message "Logging to file: ..." is now handled by setup_logging if successful.
 
     # Intercept standard logging messages
     # Set levels for libraries more finely if needed after interception
@@ -1608,7 +1593,7 @@ def main() -> int:
         return 1 # Exit if we can't create any temp dir
 
     # --- Log Final Configuration ---
-    logger.info(f"Logging level set to: {log_level}")
+    logger.info(f"Logging level set to: {console_log_level_str}") # Use the string determined for console
     logger.info(f"Application Version: {APP_VERSION}")
     logger.info(f"Application server host: {settings.host}")
     logger.info(

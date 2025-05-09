@@ -54,6 +54,7 @@ from .utils.config import (
     OPENAI_TTS_PRICING, 
     OPENAI_TTS_VOICES, 
     AppSettings, # Added AppSettings for type hint
+    OPENAI_REALTIME_MODELS, # Added for OpenAI backend model list
     OPENAI_REALTIME_VOICES, # Added for OpenAI backend
     OPENAI_REALTIME_PRICING, # Updated from OPENAI_REALTIME_PRICING_PER_MINUTE
 )
@@ -1822,9 +1823,30 @@ def main(
     # --- Backend Specific Configuration ---
     if settings.backend == "openai":
         logger.info(f"Configuring for 'openai' backend.")
-        logger.info(f"OpenAI Realtime Model: {settings.openai_realtime_model_arg}")
-        settings.current_llm_model = settings.openai_realtime_model_arg 
-        settings.available_models = [settings.openai_realtime_model_arg] 
+        
+        settings.available_models = OPENAI_REALTIME_MODELS # Use the list from config
+
+        if not settings.available_models:
+            logger.critical(
+                "OPENAI_REALTIME_MODELS list is empty in configuration. "
+                "Cannot proceed with OpenAI backend. Exiting."
+            )
+            return 1
+
+        # Validate the chosen model (from CLI/env, stored in settings.openai_realtime_model_arg)
+        # against the available list.
+        chosen_model = settings.openai_realtime_model_arg
+        if chosen_model in settings.available_models:
+            settings.current_llm_model = chosen_model
+        else:
+            logger.warning(
+                f"OpenAI realtime model '{chosen_model}' (from --openai-realtime-model or env) "
+                f"is not in the list of supported models: {settings.available_models}. "
+                f"Defaulting to the first available model: '{settings.available_models[0]}'."
+            )
+            settings.current_llm_model = settings.available_models[0]
+        
+        logger.info(f"OpenAI Realtime Model set to: {settings.current_llm_model}")
         settings.model_cost_data = {} # Cost for OpenAI realtime is handled differently (per token via OPENAI_REALTIME_PRICING)
 
         if not settings.openai_api_key:

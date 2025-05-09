@@ -2,10 +2,6 @@ import argparse
 import json
 import random
 import os # Added for environment variable access if needed, though settings used directly
-import argparse
-import json
-import random
-import os
 import sys
 import threading
 import time
@@ -13,8 +9,6 @@ import datetime
 import uvicorn
 import webbrowser
 import tempfile
-import shutil
-import uuid
 import asyncio
 import re
 from pathlib import Path
@@ -33,7 +27,6 @@ from fastapi.responses import (
     JSONResponse,
     FileResponse,
 )
-# from fastapi.staticfiles import StaticFiles # Removed StaticFiles import, using FileResponse instead
 from fastrtc import (
     AdditionalOutputs,
     ReplyOnPause,
@@ -42,7 +35,7 @@ from fastrtc import (
     AlgoOptions,
     SileroVadOptions,
 )
-from gradio.utils import get_space # Keep for get_twilio_turn_credentials check
+from gradio.utils import get_space
 from openai import OpenAI, AuthenticationError
 from pydantic import BaseModel
 from pydub import AudioSegment

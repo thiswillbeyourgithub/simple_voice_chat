@@ -734,22 +734,22 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
         session_params: Dict[str, Any] = {
             "turn_detection": {"type": "server_vad"},
             "input_audio_transcription": transcription_config,
-            # "output_audio_generation" is NOT part of session.update parameters
         }
+        if self.current_openai_voice:
+            session_params["output_audio_generation"] = {"voice": self.current_openai_voice}
         
         # Parameters for client.beta.realtime.connect()
         connect_kwargs: Dict[str, Any] = {
             "model": self.settings.openai_realtime_model_arg
         }
-        if self.current_openai_voice:
-            connect_kwargs["voice"] = self.current_openai_voice
+        # Voice parameter is NOT part of connect_kwargs, it's in session_params
         
         try:
             self._reset_turn_usage_state() # Reset usage for new connection/session
             async with self.client.beta.realtime.connect(**connect_kwargs) as conn:
-                await conn.session.update(session=session_params) # Pass the simplified session_params
+                await conn.session.update(session=session_params) 
                 self.connection = conn
-                logger.info(f"OpenAIRealtimeHandler: Connection established with model {self.settings.openai_realtime_model_arg}, voice {self.current_openai_voice or 'default'}.")
+                logger.info(f"OpenAIRealtimeHandler: Connection established with model {self.settings.openai_realtime_model_arg}, voice {self.current_openai_voice or 'default via API'}.")
                 
                 async for event in self.connection:
                     logger.debug(f"OpenAIRealtime Event: {event.type}")
@@ -1962,7 +1962,7 @@ def main(
             settings.available_models, settings.model_cost_data = get_models_and_costs_from_litellm()
 
         if not settings.available_models:
-            logger.warning("No LLM models found from proxy or litellm.model_cost. Using fallback.")
+            logger.warning("No LLM models found from proxy or litellm. Using fallback.")
             settings.available_models = ["fallback/unknown-model"]
 
         initial_llm_model_preference = settings.llm_model_arg

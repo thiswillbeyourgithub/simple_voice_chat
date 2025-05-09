@@ -41,7 +41,7 @@ from pydub import AudioSegment
 
 # --- Import Configuration ---
 # This 'settings' instance will be populated in main() and used throughout.
-from .config import settings, APP_VERSION, OPENAI_TTS_PRICING, OPENAI_TTS_VOICES
+from .utils.config import settings, APP_VERSION, OPENAI_TTS_PRICING, OPENAI_TTS_VOICES
 # --- End Import Configuration ---
 
 

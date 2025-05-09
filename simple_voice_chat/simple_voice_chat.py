@@ -827,6 +827,9 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                         price_output_per_mil = resolved_model_prices["output"]
                         # price_cached_input_per_mil = resolved_model_prices["cached_input"] # Access directly if used
 
+                        assert price_input_per_mil, "price_cached_input_per_mil shoult never be 0"
+                        assert price_output_per_mil, "price_cached_output_per_mil shoult never be 0"
+
                         input_cost = (self.current_input_tokens / 1_000_000) * price_input_per_mil
                         output_cost = (self.current_output_tokens / 1_000_000) * price_output_per_mil
                         total_cost = input_cost + output_cost
@@ -905,8 +908,10 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                         # Directly access input_tokens and output_tokens.
                         # This will raise AttributeError if they are missing from event.usage.
                         # These are expected to be integers (can be 0).
+                        logger.debug(f"OpenAIRealtimeHandler: Attempting direct attribute access on event.usage for tokens. event.usage type: {type(event.usage)}")
                         current_event_input_tokens = event.usage.input_tokens
                         current_event_output_tokens = event.usage.output_tokens
+                        logger.debug(f"OpenAIRealtimeHandler: Accessed tokens from event.usage: input_tokens={current_event_input_tokens}, output_tokens={current_event_output_tokens}")
 
                         # If tokens can be None (e.g. Optional[int] in SDK) and this is an invalid state for accumulation, raise error.
                         if current_event_input_tokens is None:

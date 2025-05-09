@@ -143,7 +143,7 @@ __all__ = [
     "OPENAI_TTS_PRICING",
     "OPENAI_TTS_VOICES",
     "OPENAI_REALTIME_VOICES",
-    "OPENAI_REALTIME_PRICING_PER_MINUTE",
+    "OPENAI_REALTIME_PRICING",
     "settings",
-    "AppSettings", # Export class for type hinting if needed elsewhere
+    "AppSettings",
 ]

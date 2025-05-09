@@ -16,9 +16,13 @@ OPENAI_TTS_VOICES = [
 ]
 # soruce: https://platform.openai.com/docs/pricing
 OPENAI_REALTIME_VOICES = OPENAI_TTS_VOICES
-OPENAI_REALTIME_MODELS = ["gpt-4o-mini-realtime-preview", "gpt-4o-realtime-preview"]
 OPENAI_REALTIME_PRICING = {
     # Prices per 1M token
+    "gpt-4o-mini-realtime-preview-2024-12-17": {
+        "input": 10.0,
+        "cached_input": 0.30,
+        "output": 20.0,
+    },
     "gpt-4o-mini-realtime-preview": {
         "input": 10.0,
         "cached_input": 0.30,
@@ -29,7 +33,13 @@ OPENAI_REALTIME_PRICING = {
         "cached_input": 2.50,
         "output": 80.0,
     },
+    "gpt-4o-realtime-preview-2024-12-17": {
+        "input": 40.0,
+        "cached_input": 2.50,
+        "output": 80.0,
+    },
 }
+OPENAI_REALTIME_MODELS = list(OPENAI_REALTIME_PRICING.keys())
 
 # gemini backend is not yet implemented but will soon be
 GEMINI_LIVE_PRICING = {

@@ -812,9 +812,9 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                                     break
                         
                         if model_prices:
-                            price_input_per_mil = model_prices.get("input", 0.0)
-                            price_output_per_mil = model_prices.get("output", 0.0)
-                            # price_cached_input_per_mil = model_prices.get("cached_input", 0.0) # Not currently used
+                            price_input_per_mil = model_prices["input"]
+                            price_output_per_mil = model_prices["output"]
+                            # price_cached_input_per_mil = model_prices["cached_input] # Not currently used
 
                             input_cost = (self.current_input_tokens / 1_000_000) * price_input_per_mil
                             output_cost = (self.current_output_tokens / 1_000_000) * price_output_per_mil

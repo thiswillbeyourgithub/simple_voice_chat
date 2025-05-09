@@ -7,7 +7,7 @@ from openai import OpenAI # For client type hints
 # --- Application Constants ---
 APP_VERSION = "3.4.0"
 OPENAI_TTS_PRICING = {
-    # price per 1M char
+    # price per 1M token
     "tts-1": 15.00,
     "tts-1-hd": 30.00,
 }
@@ -21,6 +21,17 @@ OPENAI_REALTIME_PRICING_PER_MINUTE = {
     "input": 0.006,  # Example: GPT-4o audio input price
     "output": 0.012, # Example: GPT-4o audio output price
 }
+
+GEMINI_LIVE_PRICING = {
+    # price per 1M audio token
+    # source: https://ai.google.dev/gemini-api/docs/pricing
+    "input": "2.10",
+    "output": "8.50",
+}
+# only one supported model so far
+GEMINI_LIVE_MODELS = ["gemini-2.0-flash-exp"]
+GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
+
 # --- End Application Constants ---
 
 

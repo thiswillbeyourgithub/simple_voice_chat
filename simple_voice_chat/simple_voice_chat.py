@@ -55,7 +55,7 @@ from .utils.config import (
     OPENAI_TTS_VOICES, 
     AppSettings, # Added AppSettings for type hint
     OPENAI_REALTIME_VOICES, # Added for OpenAI backend
-    OPENAI_REALTIME_PRICING_PER_MINUTE, # Added for OpenAI backend
+    OPENAI_REALTIME_PRICING, # Updated from OPENAI_REALTIME_PRICING_PER_MINUTE
 )
 # --- End Import Configuration ---
 
@@ -784,24 +784,47 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             )
                         )
                     elif event.type == "response.audio_transcript.done":
-                        # --- Cost Calculation & Metadata ---
-                        output_audio_cost = 0.0
-                        if self.current_output_audio_duration_seconds > 0 and OPENAI_REALTIME_PRICING_PER_MINUTE.get("output"):
-                            output_audio_cost = (self.current_output_audio_duration_seconds / 60.0) * OPENAI_REALTIME_PRICING_PER_MINUTE["output"]
-                            logger.info(f"OpenAIRealtime: Output audio duration: {self.current_output_audio_duration_seconds:.2f}s, Cost: ${output_audio_cost:.6f}")
+                        # --- Cost Calculation & Metadata (OpenAI Backend - Token Based) ---
+                        input_cost = 0.0
+                        output_cost = 0.0
+                        total_cost = 0.0
+                        model_name_for_pricing = self.settings.openai_realtime_model_arg
+                        model_prices = OPENAI_REALTIME_PRICING.get(model_name_for_pricing)
+
+                        if not model_prices:
+                            # Try to find a base model name match by checking if the model_arg starts with a key
+                            for base_model_key in OPENAI_REALTIME_PRICING.keys():
+                                if model_name_for_pricing.startswith(base_model_key):
+                                    model_prices = OPENAI_REALTIME_PRICING[base_model_key]
+                                    logger.info(f"OpenAIRealtimeHandler: Found pricing for '{model_name_for_pricing}' using base model key '{base_model_key}'.")
+                                    break
                         
-                        # TODO: Implement input audio cost calculation if duration can be reliably obtained.
-                        # For now, input_audio_cost is 0.
-                        # total_cost = output_audio_cost 
+                        if model_prices:
+                            price_input_per_mil = model_prices.get("input", 0.0)
+                            price_output_per_mil = model_prices.get("output", 0.0)
+                            # price_cached_input_per_mil = model_prices.get("cached_input", 0.0) # Not currently used
+
+                            input_cost = (self.current_input_tokens / 1_000_000) * price_input_per_mil
+                            output_cost = (self.current_output_tokens / 1_000_000) * price_output_per_mil
+                            total_cost = input_cost + output_cost
+                            logger.info(
+                                f"OpenAIRealtime Token Costs: Input Tokens: {self.current_input_tokens}, Output Tokens: {self.current_output_tokens}. "
+                                f"Input Cost: ${input_cost:.6f}, Output Cost: ${output_cost:.6f}, Total: ${total_cost:.6f}"
+                            )
+                        else:
+                            logger.warning(
+                                f"OpenAIRealtimeHandler: Could not find pricing information for model '{model_name_for_pricing}' in OPENAI_REALTIME_PRICING. Costs will be reported as $0."
+                            )
 
                         cost_data = {
-                            "output_audio_cost": output_audio_cost,
-                            "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2),
-                            "input_tokens": self.current_input_tokens, # From usage events
-                            "output_tokens": self.current_output_tokens, # From usage events
-                            "total_cost": output_audio_cost, # Placeholder, ideally includes input cost
+                            "input_cost": input_cost,
+                            "output_cost": output_cost,
+                            "total_cost": total_cost,
+                            "input_tokens": self.current_input_tokens,
+                            "output_tokens": self.current_output_tokens,
                             "model": self.settings.openai_realtime_model_arg,
-                            "note": "Input audio cost not yet implemented for OpenAI backend."
+                            "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2), # Informational
+                            "note": "Costs are token-based. Audio duration is informational."
                         }
                         await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
                         # --- End Cost Calculation ---
@@ -1782,7 +1805,7 @@ def main(
         logger.info(f"OpenAI Realtime Model: {settings.openai_realtime_model_arg}")
         settings.current_llm_model = settings.openai_realtime_model_arg 
         settings.available_models = [settings.openai_realtime_model_arg] 
-        settings.model_cost_data = {} # Cost for OpenAI realtime is handled differently (per minute)
+        settings.model_cost_data = {} # Cost for OpenAI realtime is handled differently (per token via OPENAI_REALTIME_PRICING)
 
         if not settings.openai_api_key:
             logger.critical("OpenAI API Key (--openai-api-key or OPENAI_API_KEY env) is REQUIRED for 'openai' backend. Exiting.")

@@ -797,15 +797,18 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                         input_cost = 0.0
                         output_cost = 0.0
                         total_cost = 0.0
-                        model_name_for_pricing = self.settings.openai_realtime_model_arg
+                        # Normalize model name to lowercase for pricing lookup, as pricing keys are lowercase.
+                        model_name_for_pricing = self.settings.openai_realtime_model_arg.lower()
+                        
+                        # First, try a direct match with the (now lowercased) model name
                         model_prices = OPENAI_REALTIME_PRICING.get(model_name_for_pricing)
 
                         if not model_prices:
-                            # Try to find a base model name match by checking if the model_arg starts with a key
-                            for base_model_key in OPENAI_REALTIME_PRICING.keys():
+                            # If direct match fails, try to find a base model name match by checking if the lowercased model_arg starts with a lowercase key
+                            for base_model_key in OPENAI_REALTIME_PRICING.keys(): # Keys are already lowercase
                                 if model_name_for_pricing.startswith(base_model_key):
                                     model_prices = OPENAI_REALTIME_PRICING[base_model_key]
-                                    logger.info(f"OpenAIRealtimeHandler: Found pricing for '{model_name_for_pricing}' using base model key '{base_model_key}'.")
+                                    logger.info(f"OpenAIRealtimeHandler: Found pricing for '{self.settings.openai_realtime_model_arg}' (matched as '{model_name_for_pricing}') using base model key '{base_model_key}'.")
                                     break
                         
                         if model_prices:

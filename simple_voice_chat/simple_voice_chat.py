@@ -84,7 +84,7 @@ from .utils.llms import (
 )
 from .utils.misc import is_port_in_use
 from .utils.stt import transcribe_audio, check_stt_confidence
-from .logging_config import setup_logging
+from .utils.logging_config import setup_logging
 
 # --- Global Variables (Runtime State - Not Configuration) ---
 # These are primarily for managing the server and UI state, not app settings.

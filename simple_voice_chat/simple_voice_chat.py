@@ -716,6 +716,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
         self._current_input_audio_duration_this_turn: float = 0.0 # Added for token calculation
         self._current_output_audio_duration_this_turn: float = 0.0 # Added for token calculation
         self._processing_lock = asyncio.Lock() # To protect shared state during event processing
+        self._last_seen_usage_metadata: Optional[Any] = None # Stores the most recent usage_metadata
 
     def copy(self):
         return GeminiRealtimeHandler(self.settings)
@@ -727,7 +728,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
         self._current_output_text_parts = []
         self._current_input_audio_duration_this_turn = 0.0 # Reset
         self._current_output_audio_duration_this_turn = 0.0 # Reset
-        logger.debug("GeminiRealtimeHandler: Turn usage state reset.")
+        self._last_seen_usage_metadata = None # Reset last_seen_usage_metadata
+        logger.debug("GeminiRealtimeHandler: Turn usage state (including _last_seen_usage_metadata) reset.")
 
     async def _audio_input_stream(self) -> AsyncGenerator[bytes, None]:
         """Yields audio chunks from the input queue for Gemini and accumulates input audio duration."""
@@ -819,6 +821,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                 self.session = session
                 logger.info(f"GeminiRealtimeHandler: Connection established with model {selected_model}, voice {self.current_gemini_voice or 'default'}.")
                 
+                self._reset_turn_usage_state() # Ensure full state reset before stream starts
+
                 await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "stt_processing", "message": "Listening..."}))
 
                 async for result in self.session.start_stream(stream=self._audio_input_stream(), mime_type="audio/pcm"):
@@ -828,6 +832,11 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             logger.debug(f"GeminiRealtime Full Event Structure: {result_j}")
                         else:
                             logger.debug(f"GeminiRealtime Full Event Structure: {result_j[:500]}...{result_j[-500:]}")
+
+                        # Capture usage_metadata if present on *any* event for the current turn
+                        if hasattr(result, 'usage_metadata') and result.usage_metadata is not None:
+                            self._last_seen_usage_metadata = result.usage_metadata
+                            logger.debug(f"GeminiRealtimeHandler: Captured/updated _last_seen_usage_metadata.")
 
                         # The LiveServerContent is nested inside the 'server_content' attribute of the event
                         live_event_content = getattr(result, 'server_content', None)
@@ -919,66 +928,66 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             self._current_output_chars = len(full_output_text)
 
                             # --- Token Calculation ---
-                            # --- Token and Cost Calculation based on API `usage_metadata` ---
+                            # Determine which usage_metadata to use (current event or last seen)
+                            current_event_usage_metadata = getattr(result, 'usage_metadata', None)
+                            final_usage_metadata_for_turn = None
+                            usage_metadata_source_log = "unknown"
+
+                            if current_event_usage_metadata:
+                                logger.debug("GeminiRealtime: Found usage_metadata on the current END_OF_SINGLE_UTTERANCE event.")
+                                final_usage_metadata_for_turn = current_event_usage_metadata
+                                usage_metadata_source_log = "current_event"
+                            elif self._last_seen_usage_metadata:
+                                logger.debug("GeminiRealtime: Using _last_seen_usage_metadata as current END_OF_SINGLE_UTTERANCE event lacks it.")
+                                final_usage_metadata_for_turn = self._last_seen_usage_metadata
+                                usage_metadata_source_log = "_last_seen_usage_metadata"
+                            
                             api_prompt_audio_tokens: int = 0
                             api_prompt_text_tokens: int = 0
                             api_response_audio_tokens: int = 0
                             # api_response_text_tokens: int = 0 # If Gemini can respond with text in Live API
 
-                            # Access usage_metadata from the top-level 'result' object
-                            usage_metadata = getattr(result, 'usage_metadata', None)
-                            if usage_metadata:
-                                logger.info(f"GeminiRealtime: Found usage_metadata from API: {usage_metadata}")
+                            if final_usage_metadata_for_turn:
+                                logger.info(f"GeminiRealtime: Using usage_metadata for cost calculation (Source: {usage_metadata_source_log}). Details: {final_usage_metadata_for_turn}")
 
-                                # Parse prompt_tokens_details
-                                prompt_details = getattr(usage_metadata, 'prompt_tokens_details', [])
-                                if not prompt_details: # Fallback to top-level prompt_token_count if details are missing
-                                    logger.warning("GeminiRealtime: prompt_tokens_details missing or empty. Token breakdown might be incomplete.")
-                                    # Check for top-level prompt_token_count if details are missing
-                                    # This handles cases where only the aggregate count is provided.
-                                    # We will assume audio tokens if not specified, as this is a voice chat app.
-                                    # A more sophisticated approach might be needed if Gemini API behavior varies widely.
-                                    top_level_prompt_tokens = getattr(usage_metadata, 'prompt_token_count', 0)
+                                prompt_details = getattr(final_usage_metadata_for_turn, 'prompt_tokens_details', [])
+                                if not prompt_details: 
+                                    logger.warning("GeminiRealtime: prompt_tokens_details missing or empty in final_usage_metadata_for_turn. Attempting to use aggregate prompt_token_count.")
+                                    top_level_prompt_tokens = getattr(final_usage_metadata_for_turn, 'prompt_token_count', 0)
                                     if top_level_prompt_tokens > 0:
                                         logger.info(f"GeminiRealtime: Using top-level prompt_token_count ({top_level_prompt_tokens}) as prompt_audio_tokens due to missing details.")
                                         api_prompt_audio_tokens = top_level_prompt_tokens
-
-
-                                for item in prompt_details:
-                                    modality = getattr(item, 'modality', '').upper()
-                                    token_count = getattr(item, 'token_count', 0)
-                                    if modality == "AUDIO":
-                                        api_prompt_audio_tokens += token_count
-                                    elif modality == "TEXT":
-                                        api_prompt_text_tokens += token_count
+                                else: 
+                                    for item in prompt_details:
+                                        modality = getattr(item, 'modality', '').upper()
+                                        token_count = getattr(item, 'token_count', 0)
+                                        if modality == "AUDIO":
+                                            api_prompt_audio_tokens += token_count
+                                        elif modality == "TEXT":
+                                            api_prompt_text_tokens += token_count
                                 
-                                # Parse response_tokens_details
-                                response_details = getattr(usage_metadata, 'response_tokens_details', [])
-                                if not response_details:
-                                     logger.warning("GeminiRealtime: response_tokens_details missing or empty. Token breakdown might be incomplete.")
-                                     # Check for top-level response_token_count
-                                     top_level_response_tokens = getattr(usage_metadata, 'response_token_count', 0)
+                                response_details = getattr(final_usage_metadata_for_turn, 'response_tokens_details', [])
+                                if not response_details: 
+                                     logger.warning("GeminiRealtime: response_tokens_details missing or empty in final_usage_metadata_for_turn. Attempting to use aggregate response_token_count.")
+                                     top_level_response_tokens = getattr(final_usage_metadata_for_turn, 'response_token_count', 0)
                                      if top_level_response_tokens > 0:
                                          logger.info(f"GeminiRealtime: Using top-level response_token_count ({top_level_response_tokens}) as response_audio_tokens due to missing details.")
                                          api_response_audio_tokens = top_level_response_tokens
-
-
-                                for item in response_details:
-                                    modality = getattr(item, 'modality', '').upper()
-                                    token_count = getattr(item, 'token_count', 0)
-                                    if modality == "AUDIO":
-                                        api_response_audio_tokens += token_count
-                                    # elif modality == "TEXT": # Handle if API supports text output here
-                                    #     api_response_text_tokens += token_count
+                                else: 
+                                    for item in response_details:
+                                        modality = getattr(item, 'modality', '').upper()
+                                        token_count = getattr(item, 'token_count', 0)
+                                        if modality == "AUDIO":
+                                            api_response_audio_tokens += token_count
                                 
                                 logger.info(
-                                    f"GeminiRealtime: Parsed API Tokens from usage_metadata: "
+                                    f"GeminiRealtime: Parsed API Tokens from final_usage_metadata_for_turn: "
                                     f"Prompt Audio: {api_prompt_audio_tokens}, Prompt Text: {api_prompt_text_tokens}, "
                                     f"Response Audio: {api_response_audio_tokens}"
                                 )
-                            else:
+                            else: # final_usage_metadata_for_turn is None
                                 logger.warning(
-                                    "GeminiRealtime: usage_metadata field not found in the event. Costs will be $0.00."
+                                    "GeminiRealtime: No usage_metadata available for cost calculation (neither current event nor last_seen). Costs will be $0.00."
                                 )
 
                             # --- Cost Calculation (Using parsed API tokens and GEMINI_LIVE_PRICING) ---

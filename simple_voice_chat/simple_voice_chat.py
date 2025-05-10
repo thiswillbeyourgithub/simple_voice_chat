@@ -950,6 +950,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 final_usage_metadata_for_turn = self._last_seen_usage_metadata
                                 usage_metadata_source_log = "_last_seen_usage_metadata"
                             
+                            logger.debug(f"GeminiRealtime: EVALUATING final_usage_metadata_for_turn. Is set: {final_usage_metadata_for_turn is not None}. Source: {usage_metadata_source_log if final_usage_metadata_for_turn else 'None'}.")
                             api_prompt_audio_tokens: int = 0
                             api_prompt_text_tokens: int = 0
                             api_response_audio_tokens: int = 0

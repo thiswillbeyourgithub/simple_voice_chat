@@ -43,10 +43,11 @@ OPENAI_REALTIME_MODELS = list(OPENAI_REALTIME_PRICING.keys())
 
 # gemini backend is not yet implemented but will soon be
 GEMINI_LIVE_PRICING = {
-    # price per 1M characters
-    # source: https://ai.google.dev/gemini-api/docs/pricing
-    "input": 2.10,  # For Speech-to-Text
-    "output": 8.50, # For Text-to-Speech
+    # price per 1M tokens
+    # Audio is tokenized at 32 tokens per second.
+    # Pricing based on Gemini 1.5 Flash input/output token costs as a proxy, as per https://ai.google.dev/gemini-api/docs/pricing
+    "input_audio_tokens": 0.35,  # For STT (input audio tokens)
+    "output_audio_tokens": 1.05, # For TTS (output audio tokens)
 }
 # only one supported model so far
 GEMINI_LIVE_MODELS = ["gemini-2.0-flash-exp"] # TODO: Potentially update if more models supporting LiveConnect become available

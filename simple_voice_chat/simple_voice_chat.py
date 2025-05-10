@@ -792,7 +792,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
 
                 async for result in self.session.start_stream(stream=self._audio_input_stream(), mime_type="audio/pcm"):
                     async with self._processing_lock: # Ensure sequential processing of results for a turn
-                        logger.debug(f"GeminiRealtime Full Event Structure: {result}")
+                        logger.debug(f"GeminiRealtime Full Event Structure: {result.json()}")
 
                         # The LiveServerContent is nested inside the 'server_content' attribute of the event
                         live_event_content = getattr(result, 'server_content', None)

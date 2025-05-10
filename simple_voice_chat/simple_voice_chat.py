@@ -31,7 +31,6 @@ from google.genai.types import (
     PrebuiltVoiceConfig,
     SpeechConfig as GenaiSpeechConfig, # Rename to avoid conflict with our SpeechConfig if any
     VoiceConfig as GenaiVoiceConfig,   # Rename
-    StopCandidateException, # Specific exception for Gemini content filtering
     # TODO: If specific RecognitionConfig for STT language is found for google-generativeai, import it.
     # from google.ai import generativelanguage as glm -> this requires google-cloud-aiplatform
 )
@@ -889,9 +888,6 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             self._reset_turn_usage_state()
 
 
-        except StopCandidateException as e: # Specific exception for Gemini
-             logger.error(f"GeminiRealtimeHandler: StopCandidateException: {e}", exc_info=True)
-             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Content Filtered: {e}"}))
         except Exception as e:
             logger.error(f"GeminiRealtimeHandler: Connection failed or error during session: {e}", exc_info=True)
             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Connection Error: {str(e)}"}))

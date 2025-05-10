@@ -1688,7 +1688,7 @@
 
 
         function updateCostDisplay(costData) {
-            console.log("Received cost data for display:", costData); 
+            console.log("Received cost data for display:", costData);
 
             const inputCostLabel = document.querySelector('#cost-details .cost-item:nth-child(1) .cost-label');
             const outputCostLabel = document.querySelector('#cost-details .cost-item:nth-child(2) .cost-label');
@@ -1721,54 +1721,75 @@
                 if (outputCostLabel) outputCostLabel.textContent = 'LLM Output:';
                 if (outputCostItem) outputCostItem.style.display = 'flex';
                 if (ttsCostLabel) ttsCostLabel.textContent = 'TTS:';
-            }
-
-
             try {
-                let currentInputCostVal = 0.0; // This will be STT cost for Gemini
-                let currentOutputCostVal = 0.0; // This is LLM text cost for classic/OpenAI, N/A for Gemini display
-                let currentTtsCostVal = 0.0; // This will be TTS audio synthesis cost (chars for Gemini, duration for OpenAI, chars for classic OpenAI TTS)
+                let currentTransactionInputCost = 0.0;    // Cost for input processing (STT, LLM input prompt)
+                let currentTransactionOutputCost = 0.0;   // Cost for LLM text generation (if applicable for display)
+                let currentTransactionTtsCost = 0.0;      // Cost for TTS audio synthesis
+                let currentTransactionTotalCost = parseFloat(costData.total_cost) || 0.0;
                 let calculationError = false;
-
 
                 if (costData.error) {
                     console.warn(`Cost calculation error from backend: ${costData.error}`);
                     document.getElementById('input-cost').textContent = 'N/A';
                     document.getElementById('output-cost').textContent = 'N/A';
                     document.getElementById('tts-cost').textContent = 'N/A';
-                    calculationError = true; 
+                    calculationError = true;
                 } else {
-                    currentInputCostVal = parseFloat(costData.input_cost) || 0.0;
-                    currentOutputCostVal = parseFloat(costData.output_cost) || 0.0; // Will be 0 for Gemini
-                    currentTtsCostVal = parseFloat(costData.tts_cost) || 0.0; // For Gemini, this is TTS cost
-
-                    cumulativeInputCost += currentInputCostVal;
-                    cumulativeOutputCost += currentOutputCostVal; // Stays 0 for Gemini display of this line item
-                    cumulativeTtsCost += currentTtsCostVal;
-
-                    // Displaying based on backend
                     if (currentBackend === 'gemini') {
-                        document.getElementById('input-cost').textContent = costData.input_chars !== undefined ? `${costData.input_chars}ch ($${formatCostDisplay(cumulativeInputCost)})` : formatCostDisplay(cumulativeInputCost);
-                        // output-cost item is hidden via style
-                        document.getElementById('tts-cost').textContent = costData.output_chars !== undefined ? `${costData.output_chars}ch ($${formatCostDisplay(cumulativeTtsCost)})` : formatCostDisplay(cumulativeTtsCost);
+                        currentTransactionInputCost = (parseFloat(costData.prompt_audio_cost) || 0.0) + (parseFloat(costData.prompt_text_cost) || 0.0);
+                        currentTransactionOutputCost = 0.0; // Not a separate distinct cost component for the "LLM Output" line in Gemini Live
+                        currentTransactionTtsCost = parseFloat(costData.response_audio_cost) || 0.0;
+                    } else if (currentBackend === 'openai') {
+                        currentTransactionInputCost = parseFloat(costData.input_cost) || 0.0;
+                        currentTransactionOutputCost = parseFloat(costData.output_cost) || 0.0;
+                        currentTransactionTtsCost = 0.0; // Not a monetary cost for accumulation; duration is informational
+                    } else { // classic
+                        currentTransactionInputCost = parseFloat(costData.input_cost) || 0.0;
+                        currentTransactionOutputCost = parseFloat(costData.output_cost) || 0.0;
+                        currentTransactionTtsCost = parseFloat(costData.tts_cost) || 0.0;
+                    }
+
+                    // If total_cost was missing from costData, sum components as a fallback for the transaction
+                    if (costData.total_cost === undefined) {
+                        console.warn("costData.total_cost was missing, transaction total calculated from components.");
+                        currentTransactionTotalCost = currentTransactionInputCost + currentTransactionOutputCost + currentTransactionTtsCost;
+                    }
+
+
+                    cumulativeInputCost += currentTransactionInputCost;
+                    cumulativeOutputCost += currentTransactionOutputCost;
+                    cumulativeTtsCost += currentTransactionTtsCost;
+                    cumulativeTotalCost += currentTransactionTotalCost; // Accumulate the total from this transaction
+
+                    // Displaying based on backend - showing TRANSACTIONAL details and CUMULATIVE monetary costs
+                    if (currentBackend === 'gemini') {
+                        const promptAudioTokens = costData.prompt_audio_tokens !== undefined ? `${costData.prompt_audio_tokens} aud` : '';
+                        const promptTextTokens = costData.prompt_text_tokens !== undefined ? `${costData.prompt_text_tokens} txt` : '';
+                        const inputTokensDisplay = [promptAudioTokens, promptTextTokens].filter(Boolean).join(' + ') + ' tok';
+                        const inputCharsDisplay = costData.input_chars !== undefined ? ` (${costData.input_chars}ch)` : '';
+                        document.getElementById('input-cost').textContent = `${inputTokensDisplay}${inputCharsDisplay} ($${formatCostDisplay(cumulativeInputCost)})`;
+                        // output-cost item is hidden via style by earlier logic
+                        const responseAudioTokens = costData.response_audio_tokens !== undefined ? `${costData.response_audio_tokens} tok` : '';
+                        const outputCharsDisplay = costData.output_chars !== undefined ? ` (${costData.output_chars}ch)` : '';
+                        document.getElementById('tts-cost').textContent = `${responseAudioTokens}${outputCharsDisplay} ($${formatCostDisplay(cumulativeTtsCost)})`;
                     } else if (currentBackend === 'openai') {
                         document.getElementById('input-cost').textContent = costData.input_tokens !== undefined ? `${costData.input_tokens} tok ($${formatCostDisplay(cumulativeInputCost)})` : formatCostDisplay(cumulativeInputCost);
                         document.getElementById('output-cost').textContent = costData.output_tokens !== undefined ? `${costData.output_tokens} tok ($${formatCostDisplay(cumulativeOutputCost)})` : formatCostDisplay(cumulativeOutputCost);
-                        document.getElementById('tts-cost').textContent = costData.output_audio_duration_seconds !== undefined ? `${costData.output_audio_duration_seconds.toFixed(1)}s` : 'N/A'; // OpenAI doesn't directly bill TTS by char/cost here for Realtime speech
+                        document.getElementById('tts-cost').textContent = costData.output_audio_duration_seconds !== undefined ? `${costData.output_audio_duration_seconds.toFixed(1)}s` : 'N/A';
                     } else { // Classic
                         document.getElementById('input-cost').textContent = formatCostDisplay(cumulativeInputCost);
                         document.getElementById('output-cost').textContent = formatCostDisplay(cumulativeOutputCost);
                         document.getElementById('tts-cost').textContent = formatCostDisplay(cumulativeTtsCost);
                     }
                 }
-                
+
                 if (calculationError) {
                     document.getElementById('total-cost').textContent = 'Error';
                 } else {
-                    cumulativeTotalCost = cumulativeInputCost + cumulativeOutputCost + cumulativeTtsCost;
                     document.getElementById('total-cost').textContent = '$' + formatCostDisplay(cumulativeTotalCost);
                 }
-                console.log(`Updated cumulative costs - Added Input: $${currentInputCostVal.toFixed(6)}, Output: $${currentOutputCostVal.toFixed(6)}, TTS: $${currentTtsCostVal.toFixed(6)} | New Total: $${cumulativeTotalCost.toFixed(6)} (Display: ${formatCostDisplay(cumulativeTotalCost)})`);
+                console.log(`Updated cumulative costs - Current Tx Total: $${currentTransactionTotalCost.toFixed(6)} | New Grand Total: $${cumulativeTotalCost.toFixed(6)}`);
+                console.debug(`Cumulative details after update: Input: $${cumulativeInputCost.toFixed(6)}, Output: $${cumulativeOutputCost.toFixed(6)}, TTS: $${cumulativeTtsCost.toFixed(6)}`);
 
             } catch (error) {
                 console.error("Unexpected error updating cost display:", error, costData);
@@ -2174,17 +2195,15 @@
         });
 
         costDisplayContainer.addEventListener('click', () => {
-            if (currentBackend === 'openai') { // Don't toggle details for openai backend if N/A
-                showToast("Cost details not available for OpenAI Realtime backend.", "warning");
-                return;
-            }
+            // Removed condition that prevented showing details for OpenAI backend.
+            // Details like token counts and audio duration are relevant for OpenAI too.
             const isHidden = costDetails.style.display === 'none' || costDetails.style.display === '';
-            costDetails.style.display = isHidden ? 'flex' : 'none'; 
+            costDetails.style.display = isHidden ? 'flex' : 'none';
             console.log(`Cost details toggled: ${isHidden ? 'shown' : 'hidden'}`);
         });
 
 
-        clearChatButton.addEventListener('click', async () => { 
+        clearChatButton.addEventListener('click', async () => {
             console.log("Clear Chat button clicked.");
             if (!confirm("Are you sure you want to clear the chat history and reset costs? This will start a new log file.")) {
                 console.log("Clear chat cancelled by user.");

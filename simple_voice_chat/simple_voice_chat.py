@@ -977,6 +977,13 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             
                             total_gemini_cost = prompt_audio_token_cost + prompt_text_token_cost + response_audio_token_cost # + response_text_token_cost
                             
+                            logger.debug( # Added debug print for turn costs
+                                f"GeminiRealtime Turn Token Costs DEBUG: "
+                                f"Prompt Audio: ${prompt_audio_token_cost:.6f} ({api_prompt_audio_tokens} tokens), "
+                                f"Prompt Text: ${prompt_text_token_cost:.6f} ({api_prompt_text_tokens} tokens), "
+                                f"Response Audio: ${response_audio_token_cost:.6f} ({api_response_audio_tokens} tokens). "
+                                f"Turn Total: ${total_gemini_cost:.6f}"
+                            )
                             logger.info(
                                 f"GeminiRealtime Costs: "
                                 f"Prompt Audio: ${prompt_audio_token_cost:.6f} ({api_prompt_audio_tokens} tokens), "

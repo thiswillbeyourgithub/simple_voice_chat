@@ -802,7 +802,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                 if self.settings.system_message:
                     logger.info(f"GeminiRealtimeHandler: Sending system message to session: \"{self.settings.system_message[:100]}...\"")
                     try:
-                        await self.session.send_text_input_async(self.settings.system_message)
+                        await self.session.send_text_input(self.settings.system_message)
                         logger.info("GeminiRealtimeHandler: System message sent successfully.")
                         # Optional: If you want the system message to appear in the UI immediately via server push
                         # system_chat_message = ChatMessage(

@@ -1174,8 +1174,13 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                         # Extract usage from event.response.usage
                         if hasattr(event, 'response') and event.response and hasattr(event.response, 'usage'):
                             usage_data = event.response.usage
-                            self.current_input_tokens = getattr(usage_data, 'input_tokens', 0)
-                            self.current_output_tokens = getattr(usage_data, 'output_tokens', 0)
+                            # Ensure tokens are integers, defaulting to 0 if None or attribute missing
+                            raw_input_tokens = getattr(usage_data, 'input_tokens', 0)
+                            raw_output_tokens = getattr(usage_data, 'output_tokens', 0)
+                            
+                            self.current_input_tokens = raw_input_tokens if raw_input_tokens is not None else 0
+                            self.current_output_tokens = raw_output_tokens if raw_output_tokens is not None else 0
+                            
                             logger.info(f"OpenAIRealtimeHandler: Final tokens from response.done: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
 
                             # Append this final usage to raw_usage_events_for_turn for completeness

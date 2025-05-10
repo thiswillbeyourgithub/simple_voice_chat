@@ -38,6 +38,10 @@ This project aims to provide a versatile and cost-effective voice chat interface
 *   💓 **Connection Monitoring:** Uses a heartbeat mechanism to detect disconnected clients and potentially shut down the server.
 *   🖥️ **Cross-Platform GUI:** Runs as a standalone desktop application using `pywebview` (default) or in a standard web browser (`--browser` flag). The application explicitly uses the QT backend for `pywebview` as the GTK backend lacks necessary WebRTC support.
 
+## Known Issues
+
+*   ⚠️ **Cost Calculation:** The cost calculation for the OpenAI real-time API and Gemini API is currently not functional.
+
 ## Installation
 
 

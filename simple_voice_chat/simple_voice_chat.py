@@ -903,7 +903,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             api_response_audio_tokens: int = 0
                             # api_response_text_tokens: int = 0 # If Gemini can respond with text in Live API
 
-                            usage_metadata = getattr(live_event_content, 'usage_metadata', None)
+                            # Access usage_metadata from the top-level 'result' object
+                            usage_metadata = getattr(result, 'usage_metadata', None)
                             if usage_metadata:
                                 logger.info(f"GeminiRealtime: Found usage_metadata from API: {usage_metadata}")
 
@@ -911,9 +912,15 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 prompt_details = getattr(usage_metadata, 'prompt_tokens_details', [])
                                 if not prompt_details: # Fallback to top-level prompt_token_count if details are missing
                                     logger.warning("GeminiRealtime: prompt_tokens_details missing or empty. Token breakdown might be incomplete.")
-                                    # Example: If prompt_token_count is primarily audio, assign it there. This is a heuristic.
-                                    # For now, if details are missing, tokens will remain 0 unless top-level counts are used directly.
-                                    # The current logic focuses on "_details" for accurate pricing.
+                                    # Check for top-level prompt_token_count if details are missing
+                                    # This handles cases where only the aggregate count is provided.
+                                    # We will assume audio tokens if not specified, as this is a voice chat app.
+                                    # A more sophisticated approach might be needed if Gemini API behavior varies widely.
+                                    top_level_prompt_tokens = getattr(usage_metadata, 'prompt_token_count', 0)
+                                    if top_level_prompt_tokens > 0:
+                                        logger.info(f"GeminiRealtime: Using top-level prompt_token_count ({top_level_prompt_tokens}) as prompt_audio_tokens due to missing details.")
+                                        api_prompt_audio_tokens = top_level_prompt_tokens
+
 
                                 for item in prompt_details:
                                     modality = getattr(item, 'modality', '').upper()
@@ -927,6 +934,12 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 response_details = getattr(usage_metadata, 'response_tokens_details', [])
                                 if not response_details:
                                      logger.warning("GeminiRealtime: response_tokens_details missing or empty. Token breakdown might be incomplete.")
+                                     # Check for top-level response_token_count
+                                     top_level_response_tokens = getattr(usage_metadata, 'response_token_count', 0)
+                                     if top_level_response_tokens > 0:
+                                         logger.info(f"GeminiRealtime: Using top-level response_token_count ({top_level_response_tokens}) as response_audio_tokens due to missing details.")
+                                         api_response_audio_tokens = top_level_response_tokens
+
 
                                 for item in response_details:
                                     modality = getattr(item, 'modality', '').upper()
@@ -937,13 +950,13 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                     #     api_response_text_tokens += token_count
                                 
                                 logger.info(
-                                    f"GeminiRealtime: Parsed API Tokens: "
+                                    f"GeminiRealtime: Parsed API Tokens from usage_metadata: "
                                     f"Prompt Audio: {api_prompt_audio_tokens}, Prompt Text: {api_prompt_text_tokens}, "
                                     f"Response Audio: {api_response_audio_tokens}"
                                 )
                             else:
                                 logger.warning(
-                                    "GeminiRealtime: usage_metadata not found. Costs will be $0.00."
+                                    "GeminiRealtime: usage_metadata field not found in the event. Costs will be $0.00."
                                 )
 
                             # --- Cost Calculation (Using parsed API tokens and GEMINI_LIVE_PRICING) ---

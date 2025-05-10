@@ -959,8 +959,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                         api_prompt_audio_tokens = top_level_prompt_tokens
                                 else: 
                                     for item in prompt_details:
-                                        modality = getattr(item, 'modality', '').upper()
-                                        token_count = getattr(item, 'token_count', 0)
+                                        modality = str(item.get('modality', '')).upper()
+                                        token_count = item.get('token_count') or 0 # Ensures token_count is an int (0 if None or missing)
                                         if modality == "AUDIO":
                                             api_prompt_audio_tokens += token_count
                                         elif modality == "TEXT":
@@ -975,8 +975,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                          api_response_audio_tokens = top_level_response_tokens
                                 else: 
                                     for item in response_details:
-                                        modality = getattr(item, 'modality', '').upper()
-                                        token_count = getattr(item, 'token_count', 0)
+                                        modality = str(item.get('modality', '')).upper()
+                                        token_count = item.get('token_count') or 0 # Ensures token_count is an int (0 if None or missing)
                                         if modality == "AUDIO":
                                             api_response_audio_tokens += token_count
                                 

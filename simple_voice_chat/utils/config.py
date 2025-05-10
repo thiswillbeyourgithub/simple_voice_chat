@@ -54,8 +54,9 @@ GEMINI_LIVE_PRICING = {
     "output_audio_tokens": 8.5, # For TTS (output audio tokens)
 }
 # only one supported model so far
-GEMINI_LIVE_MODELS = ["gemini-2.0-flash-exp"] # TODO: Potentially update if more models supporting LiveConnect become available
-GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"] # TODO: Verify these are all compatible with LiveConnect
+# GEMINI_LIVE_MODELS = ["gemini-2.0-flash-exp"] # TODO: Potentially update if more models supporting LiveConnect become available
+GEMINI_LIVE_MODELS = ["gemini-2.0-flash-live-001"] # TODO: Potentially update if more models supporting LiveConnect become available
+GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"] # From Gemini Live API docs May 2025
 
 # --- End Application Constants ---
 

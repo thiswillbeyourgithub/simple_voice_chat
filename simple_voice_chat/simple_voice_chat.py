@@ -2102,26 +2102,38 @@ def monitor_heartbeat_thread():
         )
 
         if time_since_last.total_seconds() > heartbeat_timeout:
-            logger.warning(
-                f"Heartbeat timeout ({heartbeat_timeout}s exceeded). Initiating shutdown."
-            )
-            if uvicorn_server:
-                logger.info("Signaling Uvicorn server to stop...")
-                uvicorn_server.should_exit = True
-            else:
+            if not settings.disable_heartbeat:
                 logger.warning(
-                    "Uvicorn server instance not found, cannot signal shutdown."
+                    f"Heartbeat timeout ({heartbeat_timeout}s exceeded). Initiating shutdown."
                 )
-
-            if pywebview_window:
-                logger.info("Destroying pywebview window...")
-                try:
-                    pywebview_window.destroy()
-                except Exception as e:
-                    logger.error(
-                        f"Error destroying pywebview window from monitor thread: {e}"
+                if uvicorn_server:
+                    logger.info("Signaling Uvicorn server to stop...")
+                    uvicorn_server.should_exit = True
+                else:
+                    logger.warning(
+                        "Uvicorn server instance not found, cannot signal shutdown."
                     )
-            break
+
+                if pywebview_window:
+                    logger.info("Destroying pywebview window...")
+                    try:
+                        pywebview_window.destroy()
+                    except Exception as e:
+                        logger.error(
+                            f"Error destroying pywebview window from monitor thread: {e}"
+                        )
+                break # Break loop to terminate monitor thread after shutdown initiated
+            else:
+                logger.info(
+                    f"Heartbeat timeout ({heartbeat_timeout}s exceeded), but heartbeat monitoring is disabled. Not shutting down."
+                )
+                # Reset last_heartbeat_time to prevent constant logging of this message if client truly disconnected badly
+                # This means we'd only log this once, then wait for a new "first" heartbeat.
+                last_heartbeat_time = None
+                initial_wait_done = False # Re-trigger initial wait logic
+                logger.info("Resetting heartbeat state to wait for a new initial heartbeat.")
+
+
         shutdown_event.wait(5)
     logger.info("Heartbeat monitor thread finished.")
 

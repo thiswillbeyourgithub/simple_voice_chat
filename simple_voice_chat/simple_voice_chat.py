@@ -896,29 +896,73 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             full_output_text = "".join(self._current_output_text_parts) # Assembled from model_turn parts
                             self._current_output_chars = len(full_output_text)
 
-                            # --- Token Calculation (based on audio duration) ---
-                            # Audio is tokenized at 32 tokens per second.
-                            input_audio_tokens = round(self._current_input_audio_duration_this_turn * 32)
-                            output_audio_tokens = round(self._current_output_audio_duration_this_turn * 32)
-                            logger.info(
-                                f"GeminiRealtime Audio Durations: Input: {self._current_input_audio_duration_this_turn:.3f}s, Output: {self._current_output_audio_duration_this_turn:.3f}s"
-                            )
-                            logger.info(
-                                f"GeminiRealtime Audio Tokens: Input: {input_audio_tokens}, Output: {output_audio_tokens}"
-                            )
+                            # --- Token Calculation ---
+                            # Prioritize API-provided token counts from usage_metadata if available.
+                            # Fallback to duration-based estimation if API tokens are not found.
 
+                            input_audio_tokens_from_api: Optional[int] = None
+                            output_audio_tokens_from_api: Optional[int] = None
+                            final_input_audio_tokens: int = 0
+                            final_output_audio_tokens: int = 0
+                            
+                            usage_metadata = getattr(live_event_content, 'usage_metadata', None)
+                            if usage_metadata:
+                                # Log the raw usage_metadata object (it might have a good __str__ or __repr__)
+                                logger.info(f"GeminiRealtime: Found usage_metadata from API: {usage_metadata}")
+
+                                input_audio_tokens_from_api = getattr(usage_metadata, 'input_audio_tokens', None)
+                                output_audio_tokens_from_api = getattr(usage_metadata, 'output_audio_tokens', None)
+                                
+                                logger.info(
+                                    f"GeminiRealtime: Tokens from usage_metadata API (raw): "
+                                    f"Input: {input_audio_tokens_from_api}, Output: {output_audio_tokens_from_api}"
+                                )
+                            else:
+                                logger.warning(
+                                    "GeminiRealtime: usage_metadata not found in live_event_content upon END_OF_SINGLE_UTTERANCE."
+                                )
+
+                            # Determine final input token count
+                            if input_audio_tokens_from_api is not None:
+                                final_input_audio_tokens = input_audio_tokens_from_api
+                                logger.info(f"GeminiRealtime: Using API-provided input_audio_tokens: {final_input_audio_tokens}")
+                            else:
+                                logger.warning("GeminiRealtime: input_audio_tokens not available from API, falling back to duration-based estimation.")
+                                final_input_audio_tokens = round(self._current_input_audio_duration_this_turn * 32)
+                                logger.info(f"GeminiRealtime: Duration-based input_audio_tokens: {final_input_audio_tokens} (duration: {self._current_input_audio_duration_this_turn:.3f}s)")
+                            
+                            # Determine final output token count
+                            if output_audio_tokens_from_api is not None:
+                                final_output_audio_tokens = output_audio_tokens_from_api
+                                logger.info(f"GeminiRealtime: Using API-provided output_audio_tokens: {final_output_audio_tokens}")
+                            else:
+                                logger.warning("GeminiRealtime: output_audio_tokens not available from API, falling back to duration-based estimation.")
+                                final_output_audio_tokens = round(self._current_output_audio_duration_this_turn * 32)
+                                logger.info(f"GeminiRealtime: Duration-based output_audio_tokens: {final_output_audio_tokens} (duration: {self._current_output_audio_duration_this_turn:.3f}s)")
+                            
+                            # Ensure tokens are non-negative integers
+                            final_input_audio_tokens = max(0, final_input_audio_tokens or 0)
+                            final_output_audio_tokens = max(0, final_output_audio_tokens or 0)
+                            
+                            logger.info(
+                                f"GeminiRealtime Final Audio Tokens for Costing: Input: {final_input_audio_tokens}, Output: {final_output_audio_tokens}"
+                            )
+                            logger.info(
+                                f"GeminiRealtime Audio Durations (for reference/fallback): Input: {self._current_input_audio_duration_this_turn:.3f}s, Output: {self._current_output_audio_duration_this_turn:.3f}s"
+                            )
+                            
                             # --- Cost Calculation (Token-based, using GEMINI_LIVE_PRICING from config) ---
                             input_audio_token_cost = 0.0
                             output_audio_token_cost = 0.0
                             if GEMINI_LIVE_PRICING:
                                 price_input_audio_per_mil_tokens = GEMINI_LIVE_PRICING.get("input_audio_tokens", 0.0)
                                 price_output_audio_per_mil_tokens = GEMINI_LIVE_PRICING.get("output_audio_tokens", 0.0)
-                                input_audio_token_cost = (input_audio_tokens / 1_000_000) * price_input_audio_per_mil_tokens
-                                output_audio_token_cost = (output_audio_tokens / 1_000_000) * price_output_audio_per_mil_tokens
+                                input_audio_token_cost = (final_input_audio_tokens / 1_000_000) * price_input_audio_per_mil_tokens
+                                output_audio_token_cost = (final_output_audio_tokens / 1_000_000) * price_output_audio_per_mil_tokens
                             
                             total_audio_token_based_cost = input_audio_token_cost + output_audio_token_cost
                             logger.info(
-                                f"GeminiRealtime Token Counts for Costing: Input Audio Tokens: {input_audio_tokens}, Output Audio Tokens: {output_audio_tokens}. "
+                                f"GeminiRealtime Token Counts for Costing: Input Audio Tokens: {final_input_audio_tokens}, Output Audio Tokens: {final_output_audio_tokens}. "
                                 f"Input Audio Token Cost: ${input_audio_token_cost:.6f}, Output Audio Token Cost: ${output_audio_token_cost:.6f}, Total Audio Token-Based Cost: ${total_audio_token_based_cost:.6f}"
                             )
                             logger.info( # Keep char count logging for now, can be removed later if not needed.
@@ -931,13 +975,13 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 "tts_cost": output_audio_token_cost, # Cost for output (TTS) audio tokens
                                 "total_cost": total_audio_token_based_cost,
                                 "model": self.settings.current_llm_model or self.settings.gemini_model_arg,
-                                "input_tokens": input_audio_tokens,
-                                "output_tokens": output_audio_tokens,
+                                "input_tokens": final_input_audio_tokens, # Use final derived tokens
+                                "output_tokens": final_output_audio_tokens, # Use final derived tokens
                                 "input_audio_duration_seconds": round(self._current_input_audio_duration_this_turn, 3),
                                 "output_audio_duration_seconds": round(self._current_output_audio_duration_this_turn, 3),
                                 "input_chars": self._current_input_chars, # Informational
                                 "output_chars": self._current_output_chars, # Informational
-                                "note": "Costs are based on audio tokens (input and output) as per GEMINI_LIVE_PRICING in config. Audio is tokenized at 32 tokens/second."
+                                "note": "Costs are based on audio tokens (input and output) as per GEMINI_LIVE_PRICING in config. API tokens prioritized, fallback to duration (32 tokens/sec)."
                             }
                             await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
                             
@@ -946,8 +990,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 llm_model=self.settings.current_llm_model or self.settings.gemini_model_arg,
                                 cost=cost_data,
                                 usage={ 
-                                    "input_tokens": input_audio_tokens, 
-                                    "output_tokens": output_audio_tokens,
+                                    "input_tokens": final_input_audio_tokens, # Use final derived tokens
+                                    "output_tokens": final_output_audio_tokens, # Use final derived tokens
                                     "input_audio_duration_seconds": round(self._current_input_audio_duration_this_turn, 3),
                                     "output_audio_duration_seconds": round(self._current_output_audio_duration_this_turn, 3),
                                     # Optional: Retain char counts for detailed usage if desired

@@ -802,7 +802,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             "response_modalities": ["AUDIO"],
             "speech_config": GenaiSpeechConfig(**speech_config_params),
             "context_window_compression": ContextWindowCompressionConfig(
-                sliding_window=SlidingWindow(tokens_threshold=16000) # Enable sliding window compression
+                sliding_window=SlidingWindow(16000) # Enable sliding window compression
             )
         }
         logger.info("GeminiRealtimeHandler: Context window compression enabled with 16000 token threshold.")

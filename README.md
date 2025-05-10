@@ -18,9 +18,9 @@ This project aims to provide a versatile and cost-effective voice chat interface
         *   🧠 **LLM (Large Language Model):** Integrates with [LiteLLM](https://github.com/BerriAI/litellm), providing access to a vast array of models including OpenAI, Anthropic, Google, Mistral, Cohere, Azure, and local models run via services like [Ollama](https://ollama.com/), LiteLLM proxy, vLLM, and more.
         *   🔊 **TTS (Text-to-Speech):** Supports API-based services like OpenAI TTS or alternatives such as [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) (which can use [KokoroTTS](https://github.com/kokorotts/)).
         *   *This backend allows for a fully local setup if desired, using local STT, LLM (e.g., via Ollama), and TTS engines.*
-    *   **OpenAI Backend:** Utilizes OpenAI's real-time voice API for a streamlined, all-in-one voice interaction experience, requiring an OpenAI API key.
-    *   **Gemini Backend:** Leverages Google's Gemini Live Connect API for real-time voice interactions, requiring a Google Gemini API key.
-*   ⚙️ **Highly Configurable:** Adjust backend type, STT/LLM/TTS hosts, ports, models, API keys, STT confidence thresholds (classic backend), TTS voice/speed (classic backend), system messages, and more via CLI arguments or `.env` file.
+    *   **OpenAI Backend:** Utilizes OpenAI's real-time voice API for a streamlined, all-in-one voice interaction experience, requiring an OpenAI API key. STT language and output voice can be configured.
+    *   **Gemini Backend:** Leverages Google's Gemini Live Connect API for real-time voice interactions, requiring a Google Gemini API key. STT language and output voice can be configured.
+*   ⚙️ **Highly Configurable:** Adjust backend type, STT/LLM/TTS hosts, ports, models, API keys, STT confidence thresholds (classic backend), TTS voice/speed (classic backend), system messages, STT language (all backends), and output voice (all backends) via CLI arguments or `.env` file.
 *   🌐 **Web Interface:** Simple and responsive UI built with HTML, CSS, and JavaScript.
 *   📊 **Cost Tracking:**
     *   **Classic Backend:** Real-time cost estimation for OpenAI LLM and TTS usage.
@@ -30,7 +30,8 @@ This project aims to provide a versatile and cost-effective voice chat interface
 *   👂 **STT Confidence Filtering (Classic Backend):** Automatically reject low-confidence transcriptions based on configurable thresholds (no speech probability, average log probability, minimum word count).
 *   🎤 **Dynamic Settings Adjustment:**
     *   **Classic Backend:** Change LLM model, TTS voice, TTS speed, and STT language on-the-fly.
-    *   **OpenAI Backend:** Change STT language and output voice (if supported by the model/API) on-the-fly.
+    *   **OpenAI Backend:** Change STT language and output voice on-the-fly.
+    *   **Gemini Backend:** Change STT language and output voice on-the-fly.
 *   🔍 **Fuzzy Search:** Quickly find models and voices using fuzzy search in the UI dropdowns.
 *   💬 **System Message Support:** Define a custom system message to guide the LLM's behavior.
 *   📝 **Chat History Logging:** Automatically saves conversation history to timestamped JSON files.

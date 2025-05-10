@@ -734,7 +734,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                 yield audio_chunk
                 self._input_audio_queue.task_done()
             except asyncio.TimeoutError:
-                if self.session is None or not self.session.is_active: # Check if we should break
+                if self.session is None: # Check if we should break
                     logger.debug("GeminiRealtimeHandler: _audio_input_stream detected inactive session, exiting.")
                     break
             except asyncio.CancelledError:
@@ -893,14 +893,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Connection Error: {str(e)}"}))
         finally:
             logger.info("GeminiRealtimeHandler: start_up processing loop finished.")
-            if self.session and self.session.is_active:
-                logger.info("GeminiRealtimeHandler: Closing session in start_up finally block.")
-                try:
-                    # self.session.stop_sending() # Not an async method or may not exist
-                    # Consider if specific close/stop is needed for session or if context manager handles it.
-                    pass
-                except Exception as e:
-                    logger.warning(f"GeminiRealtimeHandler: Error during session cleanup in start_up finally: {e}")
+            # The `async with` statement handles session closure.
             self.session = None
             # Signal end of stream to consumer if not already done by an error
             # Check if output_queue.put(None) is appropriate or if the loop ending does it.
@@ -932,14 +925,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
 
     async def shutdown(self) -> None:
         logger.info("GeminiRealtimeHandler: Shutting down...")
-        if self.session and self.session.is_active:
-            logger.info("GeminiRealtimeHandler: Actively closing session in shutdown.")
-            try:
-                # self.session.stop_sending() # Or similar, based on API
-                # The async context manager for session should handle closure.
-                pass
-            except Exception as e:
-                logger.warning(f"GeminiRealtimeHandler: Error closing session in shutdown: {e}")
+        # The `async with` context manager in start_up handles session closure.
+        # Setting self.session to None here helps signal _audio_input_stream to terminate.
         self.session = None
         
         # Drain queues to prevent deadlocks

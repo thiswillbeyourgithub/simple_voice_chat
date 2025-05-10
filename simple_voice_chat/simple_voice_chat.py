@@ -831,19 +831,30 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": user_message.model_dump()}))
                                 await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "llm_waiting", "message": "AI Responding..."}))
 
-                        # Process text parts from model_turn
+                        # Process model_turn for text and inline_data (audio)
                         model_turn = getattr(live_event_content, 'model_turn', None)
                         if model_turn and model_turn.parts:
                             for part in model_turn.parts:
+                                # Process text from part
                                 if part.text:
                                     logger.debug(f"Gemini Text from Model Part: '{part.text}'")
                                     self._current_output_text_parts.append(part.text)
                                     # Optionally yield text_chunk_update for faster UI text rendering
                                     # await self.output_queue.put(AdditionalOutputs({"type": "text_chunk_update", "content": part.text}))
 
-                        # Process audio response
+                                # Process inline_data (audio) from part
+                                inline_data_obj = getattr(part, 'inline_data', None)
+                                if inline_data_obj and inline_data_obj.data and 'audio' in inline_data_obj.mime_type:
+                                    logger.debug(f"GeminiRealtime: Found audio in model_turn.parts.inline_data ({len(inline_data_obj.data)} bytes, mime_type: {inline_data_obj.mime_type})")
+                                    audio_data_np = np.frombuffer(inline_data_obj.data, dtype=np.int16)
+                                    if audio_data_np.ndim == 1:
+                                        audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
+                                    await self.output_queue.put((GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, audio_data_np))
+
+                        # Process separate audio_response (often for partial audio chunks or alternative audio stream)
                         audio_response_obj = getattr(live_event_content, 'audio_response', None)
                         if audio_response_obj and audio_response_obj.data:
+                            logger.debug(f"GeminiRealtime: Found audio in audio_response ({len(audio_response_obj.data)} bytes)")
                             audio_data_np = np.frombuffer(audio_response_obj.data, dtype=np.int16)
                             if audio_data_np.ndim == 1:
                                 audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC

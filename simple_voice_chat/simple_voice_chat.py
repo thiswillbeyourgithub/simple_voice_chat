@@ -794,9 +794,10 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                     async with self._processing_lock: # Ensure sequential processing of results for a turn
                         logger.debug(f"GeminiRealtime Event: {result}")
 
-                        if result.speech_recognition_result and result.speech_recognition_result.transcript:
-                            transcript = result.speech_recognition_result.transcript
-                            is_final = result.speech_recognition_result.is_final
+                        srr = getattr(result, 'speech_recognition_result', None)
+                        if srr and srr.transcript:
+                            transcript = srr.transcript
+                            is_final = srr.is_final
                             logger.debug(f"Gemini STT: '{transcript}' (Final: {is_final})")
                             self._current_input_transcript_parts.append(transcript)
                             
@@ -812,20 +813,22 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": user_message.model_dump()}))
                                 await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "llm_waiting", "message": "AI Responding..."}))
 
-
-                        if result.text_response:
-                            logger.debug(f"Gemini Text Response: '{result.text_response}'")
-                            self._current_output_text_parts.append(result.text_response)
+                        text_resp = getattr(result, 'text_response', None)
+                        if text_resp:
+                            logger.debug(f"Gemini Text Response: '{text_resp}'")
+                            self._current_output_text_parts.append(text_resp)
                             # Yield text chunk for UI update (optional, if desired before full audio)
-                            # await self.output_queue.put(AdditionalOutputs({"type": "text_chunk_update", "content": result.text_response}))
+                            # await self.output_queue.put(AdditionalOutputs({"type": "text_chunk_update", "content": text_resp}))
 
-                        if result.audio_response and result.audio_response.data:
-                            audio_data_np = np.frombuffer(result.audio_response.data, dtype=np.int16)
+                        audio_resp = getattr(result, 'audio_response', None)
+                        if audio_resp and audio_resp.data:
+                            audio_data_np = np.frombuffer(audio_resp.data, dtype=np.int16)
                             if audio_data_np.ndim == 1:
                                 audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
                             await self.output_queue.put((GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, audio_data_np))
 
-                        if result.speech_processing_event and result.speech_processing_event.event_type == "END_OF_SINGLE_UTTERANCE":
+                        speech_event = getattr(result, 'speech_processing_event', None)
+                        if speech_event and speech_event.event_type == "END_OF_SINGLE_UTTERANCE":
                             logger.info("GeminiRealtime: END_OF_SINGLE_UTTERANCE received.")
                             
                             full_input_transcript = "".join(self._current_input_transcript_parts)
@@ -879,10 +882,11 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready"}))
                             self._reset_turn_usage_state() # Reset for next turn
 
-                        if result.error:
-                            logger.error(f"GeminiRealtime API Error: Code {result.error.code}, Message: {result.error.message}")
-                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Error: {result.error.message}"}))
-                            error_chat_message = ChatMessage(role="assistant", content=f"[Gemini Error: {result.error.message}]")
+                        error_details = getattr(result, 'error', None)
+                        if error_details:
+                            logger.error(f"GeminiRealtime API Error: Code {error_details.code}, Message: {error_details.message}")
+                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Error: {error_details.message}"}))
+                            error_chat_message = ChatMessage(role="assistant", content=f"[Gemini Error: {error_details.message}]")
                             await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()}))
                             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready (after error)"}))
                             self._reset_turn_usage_state()

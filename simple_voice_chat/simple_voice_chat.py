@@ -924,14 +924,35 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
                             await self.output_queue.put((GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, audio_data_np))
                         
-                        # Process speech events (like end of utterance)
+                        # Determine if this event signals turn end
+                        is_turn_ending_event = False
+                        end_of_turn_reason = ""
+                        
                         speech_event_details = getattr(live_event_content, 'speech_processing_event', None)
                         logger.debug(f"GeminiRealtime: Inspected speech_event_details. Value: {speech_event_details}. Event type if exists: {speech_event_details.event_type if speech_event_details else 'N/A'}")
+
                         if speech_event_details and speech_event_details.event_type == "END_OF_SINGLE_UTTERANCE":
-                            logger.info("GeminiRealtime: END_OF_SINGLE_UTTERANCE received.")
+                            is_turn_ending_event = True
+                            end_of_turn_reason = "END_OF_SINGLE_UTTERANCE"
+                            logger.info(f"GeminiRealtime: {end_of_turn_reason} received, will process end of turn.")
+                        elif live_event_content and getattr(live_event_content, 'turn_complete', False):
+                            # Ensure we are processing an active turn if turn_complete is the trigger
+                            if self._current_input_transcript_parts or self._current_output_text_parts or self._last_seen_usage_metadata:
+                                is_turn_ending_event = True
+                                end_of_turn_reason = "live_event_content.turn_complete"
+                                logger.info(f"GeminiRealtime: {end_of_turn_reason} is True, will process end of turn.")
+                            else:
+                                logger.debug("GeminiRealtime: live_event_content.turn_complete is True, but no significant turn activity detected (no input/output parts, no usage metadata seen). Ignoring as end-of-turn trigger.")
+                        
+                        if is_turn_ending_event:
+                            logger.info(f"GeminiRealtime: Processing end of turn triggered by: {end_of_turn_reason}.")
                             
                             full_input_transcript = "".join(self._current_input_transcript_parts)
-                            self._current_input_chars = len(full_input_transcript)
+                            # _current_input_chars should have been set when STT was final.
+                            # If not, set it here for safety, though it might indicate an issue upstream if STT final was missed.
+                            if not self._current_input_chars and full_input_transcript:
+                                self._current_input_chars = len(full_input_transcript)
+                                logger.warning("GeminiRealtime: _current_input_chars was not set prior to turn end processing, setting it now based on accumulated parts.")
                             
                             full_output_text = "".join(self._current_output_text_parts) # Assembled from model_turn parts
                             self._current_output_chars = len(full_output_text)
@@ -943,11 +964,11 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             usage_metadata_source_log = "unknown"
 
                             if current_event_usage_metadata:
-                                logger.debug("GeminiRealtime: Found usage_metadata on the current END_OF_SINGLE_UTTERANCE event.")
+                                logger.debug("GeminiRealtime: Found usage_metadata on the current turn-ending event.")
                                 final_usage_metadata_for_turn = current_event_usage_metadata
                                 usage_metadata_source_log = "current_event"
                             elif self._last_seen_usage_metadata:
-                                logger.debug("GeminiRealtime: Using _last_seen_usage_metadata as current END_OF_SINGLE_UTTERANCE event lacks it.")
+                                logger.debug("GeminiRealtime: Using _last_seen_usage_metadata as current turn-ending event lacks it.")
                                 final_usage_metadata_for_turn = self._last_seen_usage_metadata
                                 usage_metadata_source_log = "_last_seen_usage_metadata"
                             
@@ -968,7 +989,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                     top_level_prompt_tokens = getattr(final_usage_metadata_for_turn, 'prompt_token_count', 0)
                                     if top_level_prompt_tokens > 0:
                                         logger.info(f"GeminiRealtime: Using top-level prompt_token_count ({top_level_prompt_tokens}) as prompt_audio_tokens due to missing details.")
-                                        api_prompt_audio_tokens = top_level_prompt_tokens
+                                        api_prompt_audio_tokens = top_level_prompt_tokens # Assuming these are audio unless text modality is specified
                                 else: 
                                     for item in prompt_details:
                                         modality = str(item.modality).upper()
@@ -984,7 +1005,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                      top_level_response_tokens = getattr(final_usage_metadata_for_turn, 'response_token_count', 0)
                                      if top_level_response_tokens > 0:
                                          logger.info(f"GeminiRealtime: Using top-level response_token_count ({top_level_response_tokens}) as response_audio_tokens due to missing details.")
-                                         api_response_audio_tokens = top_level_response_tokens
+                                         api_response_audio_tokens = top_level_response_tokens # Assuming these are audio
                                 else: 
                                     for item in response_details:
                                         modality = str(item.modality).upper()

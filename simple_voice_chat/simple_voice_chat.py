@@ -25,8 +25,8 @@ import click # Added click
 import openai # Ensure openai is imported for AsyncOpenAI
 
 from fastapi import FastAPI, Request, HTTPException
-import google.generativeai as genai
-from google.generativeai.types import (
+from google import genai
+from google.genai.types import (
     LiveConnectConfig,
     PrebuiltVoiceConfig,
     SpeechConfig as GenaiSpeechConfig, # Rename to avoid conflict with our SpeechConfig if any
@@ -888,7 +888,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             self._reset_turn_usage_state()
 
 
-        except genai.types.generation_types.StopCandidateException as e: # Specific exception for Gemini
+        except genai.types.StopCandidateException as e: # Specific exception for Gemini
              logger.error(f"GeminiRealtimeHandler: StopCandidateException: {e}", exc_info=True)
              await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Content Filtered: {e}"}))
         except Exception as e:

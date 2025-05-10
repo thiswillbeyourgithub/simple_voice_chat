@@ -25,6 +25,7 @@ This project aims to provide a versatile and cost-effective voice chat interface
 *   📊 **Cost Tracking:**
     *   **Classic Backend:** Real-time cost estimation for OpenAI LLM and TTS usage.
     *   **OpenAI Backend:** Real-time cost estimation based on token usage for the selected OpenAI real-time model.
+    *   **Gemini Backend:** Real-time cost estimation based on token usage for the selected Gemini model.
 *   ⚡ **Real-time Interaction:** Low-latency voice communication powered by [fastrtc](https://github.com/gradio-app/fastrtc) (WebRTC).
 *   👂 **STT Confidence Filtering (Classic Backend):** Automatically reject low-confidence transcriptions based on configurable thresholds (no speech probability, average log probability, minimum word count).
 *   🎤 **Dynamic Settings Adjustment:**
@@ -40,7 +41,7 @@ This project aims to provide a versatile and cost-effective voice chat interface
 
 ## Known Issues
 
-*   ⚠️ **Cost Calculation:** The cost calculation for the OpenAI real-time API and Gemini API is currently not functional.
+*   ⚠️ **Cost Calculation:** The cost calculation for the OpenAI real-time API and Gemini API is currently not functional. Documentation for these features might be out of date in other sections.
 
 ## Installation
 

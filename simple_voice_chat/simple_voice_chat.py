@@ -1396,13 +1396,13 @@ def register_endpoints(app: FastAPI, stream: Stream):
                             event_type = data_payload["type"]
                             try:
                                 event_data_json = json.dumps(data_payload, ensure_ascii=False)
-                                if settings.verbose:
-                                    logger.debug(
-                                        f"Sending SSE event: type={event_type}, data={event_data_json}..."
-                                    )
-                                else:
-                                    logger.debug(
-                                        f"Sending SSE event: type={event_type}, data={event_data_json[:100]}..."
+                                # if settings.verbose:
+                                #     logger.debug(
+                                #         f"Sending SSE event: type={event_type}, data={event_data_json}..."
+                                #     )
+                                # else:
+                                logger.debug(
+                                    f"Sending SSE event: type={event_type}, data={event_data_json[:100]}...{event_data_json[-100:]}"
                                     )
                                 yield f"event: {event_type}\ndata: {event_data_json}\n\n"
                             except TypeError as e:

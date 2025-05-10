@@ -106,6 +106,7 @@ from .utils.env import (
     GEMINI_MODEL_ENV,         # Add Gemini env var
     GEMINI_VOICE_ENV,         # Add Gemini env var
     GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV, # Add Gemini threshold env var
+    DISABLE_HEARTBEAT_ENV,    # Add disable heartbeat env var
 )
 
 # Import other utils functions
@@ -2165,6 +2166,14 @@ def monitor_heartbeat_thread():
     help="System message to prepend to the chat history. (Env: SYSTEM_MESSAGE)",
 )
 @click.option(
+    "--disable-heartbeat",
+    is_flag=True,
+    envvar="DISABLE_HEARTBEAT",
+    default=(DISABLE_HEARTBEAT_ENV.lower() == "true"), # Convert string "False" to bool False
+    show_default=True,
+    help="Disable heartbeat timeout check (application will not exit if browser tab is closed without proper shutdown). (Env: DISABLE_HEARTBEAT)",
+)
+@click.option(
     "--backend",
     type=click.Choice(["classic", "openai", "gemini"], case_sensitive=False), # Add "gemini"
     default="classic",
@@ -2386,7 +2395,8 @@ def main(
     verbose: bool,
     browser: bool,
     system_message: Optional[str],
-    backend: str, 
+    disable_heartbeat: bool,
+    backend: str,
     openai_realtime_model: str,
     openai_realtime_voice: str, # New CLI option for OpenAI backend voice
     openai_api_key: Optional[str],
@@ -2434,6 +2444,7 @@ def main(
     settings.verbose = verbose
     settings.browser = browser
     settings.system_message = system_message.strip() if system_message is not None else ""
+    settings.disable_heartbeat = disable_heartbeat
 
     # --- Logging Setup (Early) ---
     console_log_level_str = "DEBUG" if settings.verbose else "INFO"

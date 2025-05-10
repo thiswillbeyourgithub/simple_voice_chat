@@ -62,11 +62,12 @@ GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus
 
 # Import env var for Pydantic default
 from .env import (
-    OPENAI_REALTIME_MODEL_ENV, 
-    GEMINI_API_KEY_ENV, 
-    GEMINI_MODEL_ENV, 
-    GEMINI_VOICE_ENV, 
-    GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV # Add Gemini threshold env var
+    OPENAI_REALTIME_MODEL_ENV,
+    GEMINI_API_KEY_ENV,
+    GEMINI_MODEL_ENV,
+    GEMINI_VOICE_ENV,
+    GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV, # Add Gemini threshold env var
+    DISABLE_HEARTBEAT_ENV, # Add disable heartbeat env var
 )
 
 class AppSettings(BaseModel):
@@ -91,6 +92,7 @@ class AppSettings(BaseModel):
     system_message: str = ""
     startup_timestamp_str: Optional[str] = None # For log filenames etc.
     backend: str = "classic"
+    disable_heartbeat: bool = False # Populated from CLI/env
     openai_realtime_model_arg: str = OPENAI_REALTIME_MODEL_ENV
     # Add after openai_realtime_model_arg
 

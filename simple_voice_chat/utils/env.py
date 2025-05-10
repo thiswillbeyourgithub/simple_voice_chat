@@ -77,6 +77,9 @@ APP_PORT_ENV: str = os.getenv("APP_PORT", "7860")  # Keep as string for argparse
 # --- System Message ---
 SYSTEM_MESSAGE_ENV: Optional[str] = os.getenv("SYSTEM_MESSAGE")
 
+# --- Heartbeat Configuration ---
+DISABLE_HEARTBEAT_ENV: str = os.getenv("DISABLE_HEARTBEAT", "False")
+
 
 # --- Exported Variables ---
 # These are the names available for import into other modules.
@@ -118,4 +121,5 @@ __all__ = [
     "APP_PORT_ENV",
     # Misc
     "SYSTEM_MESSAGE_ENV",
+    "DISABLE_HEARTBEAT_ENV",
 ]

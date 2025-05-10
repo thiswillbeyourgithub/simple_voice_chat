@@ -151,6 +151,103 @@ simple-voice-chat --help
 
 This will provide the most up-to-date information on available arguments and their corresponding environment variables, including options specific to each backend.
 
+## Configuration Details
+
+Simple Voice Chat offers a flexible configuration system. Settings can be managed through command-line arguments or by creating a `.env` file in the project's root directory.
+
+**Priority:** Command-line arguments take precedence over environment variables defined in the `.env` file. Environment variables loaded via `.env` will be available for `click` options that specify an `envvar`.
+
+**Finding All Options:**
+*   **Command-Line Help:** The most comprehensive list of all available settings, their default values, and corresponding environment variable names can be found by running:
+    ```bash
+    simple-voice-chat --help
+    ```
+*   **Environment Variable Definitions:** You can also inspect the `simple_voice_chat/utils/env.py` file to see how environment variables are loaded as defaults (e.g., `LLM_MODEL_ENV = os.getenv("LLM_MODEL", ...)`). The `envvar` parameter in `click` options in `simple_voice_chat.py` also shows which environment variables are directly checked.
+
+**Common Configuration Areas:**
+
+*   **Backend Selection:** Choose between `classic`, `openai`, or `gemini` backends using the `--backend` command-line argument. (Note: This specific option is primarily controlled via the CLI argument; most other options can also be set via environment variables as detailed in `--help`.)
+*   **API Keys:** Provide necessary API keys for services like OpenAI, Gemini, or other LLM/STT/TTS providers (e.g., set `OPENAI_API_KEY="..."`, `GEMINI_API_KEY="..."`, `LLM_API_KEY="..."` in your `.env` file).
+*   **Service Endpoints (Classic Backend):** Configure host and port for your STT, LLM, and TTS services (e.g., `STT_HOST="localhost"`, `LLM_PORT="8080"`).
+*   **Models and Voices:** Specify default models and voices (e.g., `LLM_MODEL="gpt-4o"`, `TTS_VOICE="alloy"`, `OPENAI_REALTIME_MODEL="gpt-4o-mini-realtime-preview"`, `GEMINI_VOICE="Puck"`).
+*   **STT Behavior:** Adjust STT language (e.g., `STT_LANGUAGE="en"`). For the `classic` backend, configure confidence thresholds (e.g., `STT_NO_SPEECH_PROB_THRESHOLD="0.6"`, `STT_AVG_LOGPROB_THRESHOLD="-0.7"`).
+*   **TTS Behavior (Classic Backend):** Control TTS speed (e.g., `TTS_SPEED="1.1"`) and specify acronyms to preserve (e.g., `TTS_ACRONYM_PRESERVE_LIST="AI,TTS,ASAP"`).
+*   **Application Behavior:** Set the `SYSTEM_MESSAGE="You are a concise assistant."`, configure the application port (e.g., `APP_PORT="7860"`), and choose to launch in browser mode (using the `--browser` flag).
+
+**Example `.env` file:**
+
+```env
+# .env Example - uncomment and modify lines as needed
+
+# General Application Settings
+# APP_PORT=7861
+SYSTEM_MESSAGE="You are a helpful and friendly voice assistant."
+STT_LANGUAGE="en" # Language for Speech-to-Text (e.g., "en", "es", "fr"). Affects all backends.
+
+# ---- Backend Specific Configuration ----
+# Choose ONE backend via the --backend CLI option ("classic", "openai", or "gemini").
+# The environment variables below are relevant based on that choice.
+
+# ======= OpenAI Backend =======
+# Used if --backend=openai
+OPENAI_API_KEY="sk-yourOpenAIapiKeyGoesHereIfUsingOpenAIBackend"
+OPENAI_REALTIME_MODEL="gpt-4o-mini-realtime-preview" # e.g., gpt-4o-realtime-preview, gpt-4o-mini-realtime-preview
+OPENAI_REALTIME_VOICE="alloy"                     # e.g., alloy, echo, fable, onyx, nova, shimmer, ash
+
+# ======= Gemini Backend =======
+# Used if --backend=gemini
+# GEMINI_API_KEY="yourGoogleGeminiApiKeyGoesHere"
+# GEMINI_MODEL="gemini-2.0-flash-exp" # Currently only "gemini-2.0-flash-exp" alpha
+# GEMINI_VOICE="Puck"                 # e.g., Puck, Charon, Kore, Fenrir, Aoede
+
+# ======= Classic Backend =======
+# Used if --backend=classic (or if no --backend is specified, as it's the default)
+
+# --- LLM Configuration (Classic Backend) ---
+# LLM_HOST="localhost"               # Optional: Host for LiteLLM proxy
+# LLM_PORT="8000"                    # Optional: Port for LiteLLM proxy
+LLM_MODEL="openrouter/google/gemini-flash-1.5" # Default LLM model (e.g., "gpt-4o", "ollama/llama3")
+LLM_API_KEY=""                     # Optional: API key for your LLM provider or LiteLLM proxy
+
+# --- STT Configuration (Classic Backend) ---
+# Defaults to OpenAI STT (api.openai.com:443, model whisper-1)
+# STT_HOST="api.openai.com"
+# STT_PORT="443"
+# STT_MODEL="whisper-1"
+# STT_API_KEY="sk-yourOpenAIapiKeyGoesHereIfUsingOpenAI_STT_forClassicBackend" # REQUIRED if using OpenAI STT
+
+# Example for a local STT server like Speaches:
+# STT_HOST="localhost"
+# STT_PORT="8088" # Default Speaches port
+# STT_MODEL="distil-whisper/distil-large-v2" # Example model name for Speaches
+# STT_API_KEY="" # If your local STT server requires an API key
+
+# STT Confidence Thresholds (Classic Backend)
+# STT_NO_SPEECH_PROB_THRESHOLD="0.6"
+# STT_AVG_LOGPROB_THRESHOLD="-0.7"
+# STT_MIN_WORDS_THRESHOLD="5"
+
+# --- TTS Configuration (Classic Backend) ---
+# Defaults to OpenAI TTS (api.openai.com:443, model tts-1, voice ash)
+# TTS_HOST="api.openai.com"
+# TTS_PORT="443"
+# TTS_MODEL="tts-1" # e.g., tts-1, tts-1-hd
+# TTS_VOICE="ash"   # e.g., alloy, echo, fable, onyx, nova, shimmer, ash
+# TTS_API_KEY="sk-yourOpenAIapiKeyGoesHereIfUsingOpenAI_TTS_forClassicBackend" # REQUIRED if using OpenAI TTS
+# TTS_SPEED="1.0"   # TTS speed (0.1 to 4.0)
+
+# Example for a local TTS server like Kokoro-FastAPI:
+# TTS_HOST="localhost"
+# TTS_PORT="8002" # Default Kokoro-FastAPI port
+# TTS_MODEL="kokoro-multiple-toyunda-en" # Example model name for Kokoro
+# TTS_VOICE="ToyundaDesktop" # Example voice for Kokoro
+# TTS_API_KEY="" # If your local TTS server requires an API key
+# TTS_SPEED="1.2"
+# TTS_ACRONYM_PRESERVE_LIST="AI,TTS,LLM,ASAP" # Comma-separated list of acronyms for Kokoro TTS
+```
+
+Remember to remove or comment out settings that are not relevant to your chosen backend or setup. The `simple-voice-chat --help` output is your best reference for all available options and their corresponding environment variables.
+
 ---
 
 

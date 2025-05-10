@@ -31,6 +31,7 @@ from google.genai.types import (
     PrebuiltVoiceConfig,
     SpeechConfig as GenaiSpeechConfig, # Rename to avoid conflict with our SpeechConfig if any
     VoiceConfig as GenaiVoiceConfig,   # Rename
+    StopCandidateException, # Specific exception for Gemini content filtering
     # TODO: If specific RecognitionConfig for STT language is found for google-generativeai, import it.
     # from google.ai import generativelanguage as glm -> this requires google-cloud-aiplatform
 )

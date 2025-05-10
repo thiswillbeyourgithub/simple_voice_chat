@@ -141,6 +141,7 @@ You can find all available command-line arguments and their corresponding enviro
 You can choose the backend using the `--backend` option:
 *   `--backend classic` (default): Uses separate STT, LLM, and TTS services.
 *   `--backend openai`: Uses OpenAI's real-time voice API. Requires `--openai-api-key`.
+*   `--backend gemini`: Uses Google's Gemini Live Connect API. Requires `--gemini-api-key`.
 
 **For a detailed list of all configuration options, please use the `--help` flag:**
 

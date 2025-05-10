@@ -792,19 +792,37 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
 
                 async for result in self.session.start_stream(stream=self._audio_input_stream(), mime_type="audio/pcm"):
                     async with self._processing_lock: # Ensure sequential processing of results for a turn
-                        logger.debug(f"GeminiRealtime Event: {result}")
+                        logger.debug(f"GeminiRealtime Full Event Structure: {result}")
 
-                        srr = getattr(result, 'speech_recognition_result', None)
+                        # The LiveServerContent is nested inside the 'server_content' attribute of the event
+                        live_event_content = getattr(result, 'server_content', None)
+
+                        if not live_event_content:
+                            # Handle cases where server_content is not present, 
+                            # or if the top-level 'result' itself indicates an error or other state.
+                            top_level_error = getattr(result, 'error', None)
+                            if top_level_error:
+                                logger.error(f"GeminiRealtime API Error (top-level event): Code {top_level_error.code}, Message: {top_level_error.message}")
+                                await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Error: {top_level_error.message}"}))
+                                error_chat_message = ChatMessage(role="assistant", content=f"[Gemini Error: {top_level_error.message}]")
+                                await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()}))
+                                await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready (after top-level error)"}))
+                                self._reset_turn_usage_state()
+                            else:
+                                logger.warning(f"GeminiRealtime Event does not contain 'server_content' or is an unhandled type: {result}")
+                            continue # Move to the next event
+
+                        # Process STT results from input_transcription
+                        srr = getattr(live_event_content, 'input_transcription', None)
                         if srr and srr.transcript:
                             transcript = srr.transcript
                             is_final = srr.is_final
-                            logger.debug(f"Gemini STT: '{transcript}' (Final: {is_final})")
+                            logger.debug(f"Gemini STT (from input_transcription): '{transcript}' (Final: {is_final})")
                             self._current_input_transcript_parts.append(transcript)
                             
-                            # For now, only send final transcript as user message
                             if is_final:
                                 full_transcript = "".join(self._current_input_transcript_parts)
-                                self._current_input_chars = len(full_transcript) # Store final char count
+                                self._current_input_chars = len(full_transcript)
                                 user_message = ChatMessage(
                                     role="user",
                                     content=full_transcript,
@@ -813,84 +831,77 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": user_message.model_dump()}))
                                 await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "llm_waiting", "message": "AI Responding..."}))
 
-                        text_resp = getattr(result, 'text_response', None)
-                        if text_resp:
-                            logger.debug(f"Gemini Text Response: '{text_resp}'")
-                            self._current_output_text_parts.append(text_resp)
-                            # Yield text chunk for UI update (optional, if desired before full audio)
-                            # await self.output_queue.put(AdditionalOutputs({"type": "text_chunk_update", "content": text_resp}))
+                        # Process text parts from model_turn
+                        model_turn = getattr(live_event_content, 'model_turn', None)
+                        if model_turn and model_turn.parts:
+                            for part in model_turn.parts:
+                                if part.text:
+                                    logger.debug(f"Gemini Text from Model Part: '{part.text}'")
+                                    self._current_output_text_parts.append(part.text)
+                                    # Optionally yield text_chunk_update for faster UI text rendering
+                                    # await self.output_queue.put(AdditionalOutputs({"type": "text_chunk_update", "content": part.text}))
 
-                        audio_resp = getattr(result, 'audio_response', None)
-                        if audio_resp and audio_resp.data:
-                            audio_data_np = np.frombuffer(audio_resp.data, dtype=np.int16)
+                        # Process audio response
+                        audio_response_obj = getattr(live_event_content, 'audio_response', None)
+                        if audio_response_obj and audio_response_obj.data:
+                            audio_data_np = np.frombuffer(audio_response_obj.data, dtype=np.int16)
                             if audio_data_np.ndim == 1:
                                 audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
                             await self.output_queue.put((GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, audio_data_np))
-
-                        speech_event = getattr(result, 'speech_processing_event', None)
-                        if speech_event and speech_event.event_type == "END_OF_SINGLE_UTTERANCE":
+                        
+                        # Process speech events (like end of utterance)
+                        speech_event_details = getattr(live_event_content, 'speech_processing_event', None)
+                        if speech_event_details and speech_event_details.event_type == "END_OF_SINGLE_UTTERANCE":
                             logger.info("GeminiRealtime: END_OF_SINGLE_UTTERANCE received.")
                             
                             full_input_transcript = "".join(self._current_input_transcript_parts)
                             self._current_input_chars = len(full_input_transcript)
                             
-                            full_output_text = "".join(self._current_output_text_parts)
+                            full_output_text = "".join(self._current_output_text_parts) # Assembled from model_turn parts
                             self._current_output_chars = len(full_output_text)
 
-                            # --- Cost Calculation (Gemini Backend) ---
+                            # --- Cost Calculation / Assistant Message (existing logic) ---
                             input_cost = 0.0
-                            output_tts_cost = 0.0 # This represents TTS cost for Gemini
-                            
+                            output_tts_cost = 0.0
                             if GEMINI_LIVE_PRICING:
                                 price_input_per_mil_chars = GEMINI_LIVE_PRICING.get("input", 0.0)
                                 price_output_per_mil_chars = GEMINI_LIVE_PRICING.get("output", 0.0)
-
                                 input_cost = (self._current_input_chars / 1_000_000) * price_input_per_mil_chars
                                 output_tts_cost = (self._current_output_chars / 1_000_000) * price_output_per_mil_chars
-                            
                             total_cost = input_cost + output_tts_cost
                             logger.info(
                                 f"GeminiRealtime Char Counts: Input: {self._current_input_chars}, Output (TTS): {self._current_output_chars}. "
                                 f"Input Cost: ${input_cost:.6f}, Output (TTS) Cost: ${output_tts_cost:.6f}, Total: ${total_cost:.6f}"
                             )
                             cost_data = {
-                                "input_cost": input_cost,       # STT cost
-                                "output_cost": 0.0,             # LLM text output (not directly billed by char, covered by TTS for Gemini Live)
-                                "tts_cost": output_tts_cost,    # TTS cost
-                                "total_cost": total_cost,
-                                "input_chars": self._current_input_chars,
-                                "output_chars": self._current_output_chars, # Characters synthesized
+                                "input_cost": input_cost, "output_cost": 0.0, "tts_cost": output_tts_cost,
+                                "total_cost": total_cost, "input_chars": self._current_input_chars,
+                                "output_chars": self._current_output_chars,
                                 "model": self.settings.current_llm_model or self.settings.gemini_model_arg,
                                 "note": "Costs are character-based for STT (input) and TTS (output_chars)."
                             }
                             await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
-                            # --- End Cost Calculation ---
-
+                            
                             assistant_metadata = ChatMessageMetadata(
                                 timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                                 llm_model=self.settings.current_llm_model or self.settings.gemini_model_arg,
                                 cost=cost_data,
                                 usage={"input_chars": self._current_input_chars, "output_chars": self._current_output_chars}
                             )
-                            assistant_message = ChatMessage(
-                                role="assistant",
-                                content=full_output_text, # Full text of assistant's response
-                                metadata=assistant_metadata
-                            )
+                            assistant_message = ChatMessage(role="assistant", content=full_output_text, metadata=assistant_metadata)
                             await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": assistant_message.model_dump()}))
-                            
                             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready"}))
-                            self._reset_turn_usage_state() # Reset for next turn
-
-                        error_details = getattr(result, 'error', None)
-                        if error_details:
-                            logger.error(f"GeminiRealtime API Error: Code {error_details.code}, Message: {error_details.message}")
-                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Error: {error_details.message}"}))
-                            error_chat_message = ChatMessage(role="assistant", content=f"[Gemini Error: {error_details.message}]")
-                            await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()}))
-                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready (after error)"}))
                             self._reset_turn_usage_state()
 
+                        # Process errors reported within server_content
+                        error_obj_from_content = getattr(live_event_content, 'error', None)
+                        if error_obj_from_content:
+                            logger.error(f"GeminiRealtime API Error (from server_content): Code {error_obj_from_content.code}, Message: {error_obj_from_content.message}")
+                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Error: {error_obj_from_content.message}"}))
+                            error_chat_message = ChatMessage(role="assistant", content=f"[Gemini Error: {error_obj_from_content.message}]")
+                            await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()}))
+                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready (after error in content)"}))
+                            self._reset_turn_usage_state()
 
         except Exception as e:
             logger.error(f"GeminiRealtimeHandler: Connection failed or error during session: {e}", exc_info=True)

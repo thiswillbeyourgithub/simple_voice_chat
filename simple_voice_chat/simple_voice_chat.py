@@ -25,6 +25,15 @@ import click # Added click
 import openai # Ensure openai is imported for AsyncOpenAI
 
 from fastapi import FastAPI, Request, HTTPException
+from google import genai
+from google.genai.types import (
+    LiveConnectConfig,
+    PrebuiltVoiceConfig,
+    SpeechConfig as GenaiSpeechConfig, # Rename to avoid conflict with our SpeechConfig if any
+    VoiceConfig as GenaiVoiceConfig,   # Rename
+    # TODO: If specific RecognitionConfig for STT language is found for google-generativeai, import it.
+    # from google.ai import generativelanguage as glm -> this requires google-cloud-aiplatform
+)
 from fastapi.responses import (
     HTMLResponse,
     StreamingResponse,
@@ -57,6 +66,9 @@ from .utils.config import (
     OPENAI_REALTIME_MODELS, # Added for OpenAI backend model list
     OPENAI_REALTIME_VOICES, # Added for OpenAI backend
     OPENAI_REALTIME_PRICING, # Updated from OPENAI_REALTIME_PRICING_PER_MINUTE
+    GEMINI_LIVE_MODELS,       # Add Gemini model list
+    GEMINI_LIVE_VOICES,       # Add Gemini voice list
+    GEMINI_LIVE_PRICING,      # Add Gemini pricing
 )
 # --- End Import Configuration ---
 
@@ -88,6 +100,9 @@ from .utils.env import (
     OPENAI_API_KEY_ENV, 
     OPENAI_REALTIME_MODEL_ENV, 
     OPENAI_REALTIME_VOICE_ENV,
+    GEMINI_API_KEY_ENV,       # Add Gemini env var
+    GEMINI_MODEL_ENV,         # Add Gemini env var
+    GEMINI_VOICE_ENV,         # Add Gemini env var
 )
 
 # Import other utils functions
@@ -116,6 +131,8 @@ uvicorn_server = None # Global variable to hold the Uvicorn server instance
 
 # --- Constants ---
 OPENAI_REALTIME_SAMPLE_RATE = 24000
+GEMINI_REALTIME_INPUT_SAMPLE_RATE = 16000 # Gemini expects 16kHz input
+GEMINI_REALTIME_OUTPUT_SAMPLE_RATE = 24000 # Gemini produces 24kHz output (e.g., Puck voice)
 # --- End Constants ---
 
 
@@ -654,8 +671,8 @@ class ChatMessageMetadata(BaseModel):
     """Optional metadata associated with a chat message."""
     timestamp: Optional[str] = None 
     llm_model: Optional[str] = None
-    usage: Optional[Dict[str, Any]] = None # For classic: token counts; For OpenAI: token counts from events
-    cost: Optional[Dict[str, Any]] = None # For classic: LLM/TTS cost; For OpenAI: output audio cost
+    usage: Optional[Dict[str, Any]] = None # For classic/OpenAI: token counts; For Gemini: char counts
+    cost: Optional[Dict[str, Any]] = None 
     stt_details: Optional[Dict[str, Any]] = None 
     tts_audio_file_paths: Optional[List[str]] = None # Classic backend
     output_audio_duration_seconds: Optional[float] = None # OpenAI backend
@@ -673,6 +690,423 @@ class InputData(BaseModel):
     """Model for data received by the /input_hook endpoint."""
     webrtc_id: str
     chatbot: list[ChatMessage] 
+
+
+# --- Gemini Realtime Handler ---
+class GeminiRealtimeHandler(AsyncStreamHandler):
+    def __init__(self, app_settings: "AppSettings") -> None:
+        super().__init__(
+            expected_layout="mono",
+            output_sample_rate=GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, # Gemini output is 24kHz
+            input_sample_rate=GEMINI_REALTIME_INPUT_SAMPLE_RATE,  # Gemini input is 16kHz
+        )
+        self.settings = app_settings
+        self.client: Optional[genai.Client] = None 
+        self.session: Optional[genai.live.AsyncLiveConnectSession] = None
+        self._input_audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self.output_queue: asyncio.Queue = asyncio.Queue() # For (sample_rate, np.ndarray) or AdditionalOutputs
+        self.current_stt_language = self.settings.current_stt_language # TODO: Verify how to use this with Gemini Live
+        self.current_gemini_voice = self.settings.current_gemini_voice
+
+        # State for cost calculation (Gemini Backend - Character based)
+        self._current_input_chars: int = 0
+        self._current_output_chars: int = 0 # Text that was synthesized
+        self._current_input_transcript_parts: List[str] = []
+        self._current_output_text_parts: List[str] = []
+        self._current_input_audio_duration_this_turn: float = 0.0 # Added for token calculation
+        self._current_output_audio_duration_this_turn: float = 0.0 # Added for token calculation
+        self._processing_lock = asyncio.Lock() # To protect shared state during event processing
+
+    def copy(self):
+        return GeminiRealtimeHandler(self.settings)
+
+    def _reset_turn_usage_state(self):
+        self._current_input_chars = 0
+        self._current_output_chars = 0
+        self._current_input_transcript_parts = []
+        self._current_output_text_parts = []
+        self._current_input_audio_duration_this_turn = 0.0 # Reset
+        self._current_output_audio_duration_this_turn = 0.0 # Reset
+        logger.debug("GeminiRealtimeHandler: Turn usage state reset.")
+
+    async def _audio_input_stream(self) -> AsyncGenerator[bytes, None]:
+        """Yields audio chunks from the input queue for Gemini and accumulates input audio duration."""
+        while True:
+            try:
+                # Wait for audio data, but with a timeout to allow shutdown checks
+                audio_chunk = await asyncio.wait_for(self._input_audio_queue.get(), timeout=0.1)
+                
+                # Accumulate input audio duration (bytes_per_sample = 2 for int16)
+                duration_chunk_seconds = len(audio_chunk) / (GEMINI_REALTIME_INPUT_SAMPLE_RATE * 2)
+                self._current_input_audio_duration_this_turn += duration_chunk_seconds
+                
+                yield audio_chunk
+                self._input_audio_queue.task_done()
+            except asyncio.TimeoutError:
+                if self.session is None: # Check if we should break
+                    logger.debug("GeminiRealtimeHandler: _audio_input_stream detected inactive session, exiting.")
+                    break
+            except asyncio.CancelledError:
+                logger.debug("GeminiRealtimeHandler: _audio_input_stream cancelled.")
+                break
+
+
+    async def start_up(self):
+        logger.info("GeminiRealtimeHandler: Starting up and connecting to Gemini...")
+        if not self.settings.gemini_api_key:
+            logger.error("GeminiRealtimeHandler: Gemini API Key not configured. Cannot connect.")
+            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": "Gemini API Key missing."}))
+            await self.output_queue.put(None)
+            return
+
+        self.client = genai.Client(
+            api_key=self.settings.gemini_api_key,
+            http_options={"api_version": "v1alpha"}, # Alpha version is crucial
+        )
+
+        # Update language and voice if changed in settings
+        if self.current_stt_language != self.settings.current_stt_language:
+            self.current_stt_language = self.settings.current_stt_language
+            # TODO: Gemini Live API STT language configuration method in google-generativeai SDK is not obvious.
+            # It might be auto-detected or require a different config object not directly in LiveConnectConfig.
+            logger.info(f"GeminiRealtimeHandler: STT language setting: {self.current_stt_language or 'auto-detect (Gemini default)'}. Note: Explicit STT language setting might not be supported by current Gemini Live SDK integration.")
+
+        if self.current_gemini_voice != self.settings.current_gemini_voice:
+            self.current_gemini_voice = self.settings.current_gemini_voice
+            logger.info(f"GeminiRealtimeHandler: Output voice updated to: {self.current_gemini_voice}")
+
+        live_connect_config = LiveConnectConfig(
+            response_modalities=["AUDIO"],  # Request only audio modality, matching reference
+            speech_config=GenaiSpeechConfig( # Using renamed import
+                voice_config=GenaiVoiceConfig( # Using renamed import
+                    prebuilt_voice_config=PrebuiltVoiceConfig(
+                        voice_name=self.current_gemini_voice,
+                    )
+                )
+            ),
+            # TODO: Add stt_config here if a way to specify language is found for google-generativeai
+            # e.g., stt_config=GenaiSpeechConfig(recognition_config=RecognitionConfig(language_codes=[self.current_stt_language]))
+            # This requires knowing the exact structure and objects from google-generativeai.
+        )
+
+        try:
+            self._reset_turn_usage_state()
+            selected_model = self.settings.current_llm_model or self.settings.gemini_model_arg # Fallback to arg if current not set
+            logger.info(f"GeminiRealtimeHandler: Attempting to connect with model {selected_model}, voice {self.current_gemini_voice or 'default'}.")
+
+            async with self.client.aio.live.connect(model=selected_model, config=live_connect_config) as session:
+                self.session = session
+                logger.info(f"GeminiRealtimeHandler: Connection established with model {selected_model}, voice {self.current_gemini_voice or 'default'}.")
+                await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "stt_processing", "message": "Listening..."}))
+
+                async for result in self.session.start_stream(stream=self._audio_input_stream(), mime_type="audio/pcm"):
+                    async with self._processing_lock: # Ensure sequential processing of results for a turn
+                        result_j = result.json()
+                        if len(result_j) < 1000:
+                            logger.debug(f"GeminiRealtime Full Event Structure: {result_j}")
+                        else:
+                            logger.debug(f"GeminiRealtime Full Event Structure: {result_j[:500]}...{result_j[-500:]}")
+
+                        # The LiveServerContent is nested inside the 'server_content' attribute of the event
+                        live_event_content = getattr(result, 'server_content', None)
+
+                        if not live_event_content:
+                            # Handle cases where server_content is not present, 
+                            # or if the top-level 'result' itself indicates an error or other state.
+                            top_level_error = getattr(result, 'error', None)
+                            if top_level_error:
+                                logger.error(f"GeminiRealtime API Error (top-level event): Code {top_level_error.code}, Message: {top_level_error.message}")
+                                await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Error: {top_level_error.message}"}))
+                                error_chat_message = ChatMessage(role="assistant", content=f"[Gemini Error: {top_level_error.message}]")
+                                await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()}))
+                                await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready (after top-level error)"}))
+                                self._reset_turn_usage_state()
+                            else:
+                                logger.warning(f"GeminiRealtime Event does not contain 'server_content' or is an unhandled type: {result}")
+                            continue # Move to the next event
+
+                        # Process STT results from input_transcription
+                        srr = getattr(live_event_content, 'input_transcription', None)
+                        if srr and srr.transcript:
+                            transcript = srr.transcript
+                            is_final = srr.is_final
+                            logger.debug(f"Gemini STT (from input_transcription): '{transcript}' (Final: {is_final})")
+                            self._current_input_transcript_parts.append(transcript)
+                            
+                            if is_final:
+                                full_transcript = "".join(self._current_input_transcript_parts)
+                                self._current_input_chars = len(full_transcript)
+                                user_message = ChatMessage(
+                                    role="user",
+                                    content=full_transcript,
+                                    metadata=ChatMessageMetadata(timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
+                                )
+                                await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": user_message.model_dump()}))
+                                await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "llm_waiting", "message": "AI Responding..."}))
+
+                        # Process model_turn for text and inline_data (audio)
+                        model_turn = getattr(live_event_content, 'model_turn', None)
+                        if model_turn and model_turn.parts:
+                            for part in model_turn.parts:
+                                # Process text from part
+                                if part.text:
+                                    logger.debug(f"Gemini Text from Model Part: '{part.text}'")
+                                    self._current_output_text_parts.append(part.text)
+                                    # Optionally yield text_chunk_update for faster UI text rendering
+                                    # await self.output_queue.put(AdditionalOutputs({"type": "text_chunk_update", "content": part.text}))
+
+                                # Process inline_data (audio) from part
+                                inline_data_obj = getattr(part, 'inline_data', None)
+                                if inline_data_obj and inline_data_obj.data and 'audio' in inline_data_obj.mime_type:
+                                    logger.debug(f"GeminiRealtime: Found audio in model_turn.parts.inline_data ({len(inline_data_obj.data)} bytes, mime_type: {inline_data_obj.mime_type})")
+                                    
+                                    # Accumulate output audio duration
+                                    output_audio_bytes_chunk = len(inline_data_obj.data)
+                                    duration_chunk_output_seconds = output_audio_bytes_chunk / (GEMINI_REALTIME_OUTPUT_SAMPLE_RATE * 2)
+                                    self._current_output_audio_duration_this_turn += duration_chunk_output_seconds
+                                    
+                                    audio_data_np = np.frombuffer(inline_data_obj.data, dtype=np.int16)
+                                    if audio_data_np.ndim == 1:
+                                        audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
+                                    await self.output_queue.put((GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, audio_data_np))
+
+                        # Process separate audio_response (often for partial audio chunks or alternative audio stream)
+                        audio_response_obj = getattr(live_event_content, 'audio_response', None)
+                        if audio_response_obj and audio_response_obj.data:
+                            logger.debug(f"GeminiRealtime: Found audio in audio_response ({len(audio_response_obj.data)} bytes)")
+
+                            # Accumulate output audio duration
+                            output_audio_bytes_chunk = len(audio_response_obj.data)
+                            duration_chunk_output_seconds = output_audio_bytes_chunk / (GEMINI_REALTIME_OUTPUT_SAMPLE_RATE * 2)
+                            self._current_output_audio_duration_this_turn += duration_chunk_output_seconds
+
+                            audio_data_np = np.frombuffer(audio_response_obj.data, dtype=np.int16)
+                            if audio_data_np.ndim == 1:
+                                audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
+                            await self.output_queue.put((GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, audio_data_np))
+                        
+                        # Process speech events (like end of utterance)
+                        speech_event_details = getattr(live_event_content, 'speech_processing_event', None)
+                        if speech_event_details and speech_event_details.event_type == "END_OF_SINGLE_UTTERANCE":
+                            logger.info("GeminiRealtime: END_OF_SINGLE_UTTERANCE received.")
+                            
+                            full_input_transcript = "".join(self._current_input_transcript_parts)
+                            self._current_input_chars = len(full_input_transcript)
+                            
+                            full_output_text = "".join(self._current_output_text_parts) # Assembled from model_turn parts
+                            self._current_output_chars = len(full_output_text)
+
+                            # --- Token Calculation ---
+                            # --- Token and Cost Calculation based on API `usage_metadata` ---
+                            api_prompt_audio_tokens: int = 0
+                            api_prompt_text_tokens: int = 0
+                            api_response_audio_tokens: int = 0
+                            # api_response_text_tokens: int = 0 # If Gemini can respond with text in Live API
+
+                            # Access usage_metadata from the top-level 'result' object
+                            usage_metadata = getattr(result, 'usage_metadata', None)
+                            if usage_metadata:
+                                logger.info(f"GeminiRealtime: Found usage_metadata from API: {usage_metadata}")
+
+                                # Parse prompt_tokens_details
+                                prompt_details = getattr(usage_metadata, 'prompt_tokens_details', [])
+                                if not prompt_details: # Fallback to top-level prompt_token_count if details are missing
+                                    logger.warning("GeminiRealtime: prompt_tokens_details missing or empty. Token breakdown might be incomplete.")
+                                    # Check for top-level prompt_token_count if details are missing
+                                    # This handles cases where only the aggregate count is provided.
+                                    # We will assume audio tokens if not specified, as this is a voice chat app.
+                                    # A more sophisticated approach might be needed if Gemini API behavior varies widely.
+                                    top_level_prompt_tokens = getattr(usage_metadata, 'prompt_token_count', 0)
+                                    if top_level_prompt_tokens > 0:
+                                        logger.info(f"GeminiRealtime: Using top-level prompt_token_count ({top_level_prompt_tokens}) as prompt_audio_tokens due to missing details.")
+                                        api_prompt_audio_tokens = top_level_prompt_tokens
+
+
+                                for item in prompt_details:
+                                    modality = getattr(item, 'modality', '').upper()
+                                    token_count = getattr(item, 'token_count', 0)
+                                    if modality == "AUDIO":
+                                        api_prompt_audio_tokens += token_count
+                                    elif modality == "TEXT":
+                                        api_prompt_text_tokens += token_count
+                                
+                                # Parse response_tokens_details
+                                response_details = getattr(usage_metadata, 'response_tokens_details', [])
+                                if not response_details:
+                                     logger.warning("GeminiRealtime: response_tokens_details missing or empty. Token breakdown might be incomplete.")
+                                     # Check for top-level response_token_count
+                                     top_level_response_tokens = getattr(usage_metadata, 'response_token_count', 0)
+                                     if top_level_response_tokens > 0:
+                                         logger.info(f"GeminiRealtime: Using top-level response_token_count ({top_level_response_tokens}) as response_audio_tokens due to missing details.")
+                                         api_response_audio_tokens = top_level_response_tokens
+
+
+                                for item in response_details:
+                                    modality = getattr(item, 'modality', '').upper()
+                                    token_count = getattr(item, 'token_count', 0)
+                                    if modality == "AUDIO":
+                                        api_response_audio_tokens += token_count
+                                    # elif modality == "TEXT": # Handle if API supports text output here
+                                    #     api_response_text_tokens += token_count
+                                
+                                logger.info(
+                                    f"GeminiRealtime: Parsed API Tokens from usage_metadata: "
+                                    f"Prompt Audio: {api_prompt_audio_tokens}, Prompt Text: {api_prompt_text_tokens}, "
+                                    f"Response Audio: {api_response_audio_tokens}"
+                                )
+                            else:
+                                logger.warning(
+                                    "GeminiRealtime: usage_metadata field not found in the event. Costs will be $0.00."
+                                )
+
+                            # --- Cost Calculation (Using parsed API tokens and GEMINI_LIVE_PRICING) ---
+                            prompt_audio_token_cost = 0.0
+                            prompt_text_token_cost = 0.0
+                            response_audio_token_cost = 0.0 # For TTS
+
+                            if GEMINI_LIVE_PRICING:
+                                price_input_audio_per_mil = GEMINI_LIVE_PRICING.get("input_audio_tokens", 0.0)
+                                price_input_text_per_mil = GEMINI_LIVE_PRICING.get("input_text_tokens", 0.0)
+                                price_output_audio_per_mil = GEMINI_LIVE_PRICING.get("output_audio_tokens", 0.0)
+                                # price_output_text_per_mil = GEMINI_LIVE_PRICING.get("output_text_tokens", 0.0) # If text output
+
+                                prompt_audio_token_cost = (api_prompt_audio_tokens / 1_000_000) * price_input_audio_per_mil
+                                prompt_text_token_cost = (api_prompt_text_tokens / 1_000_000) * price_input_text_per_mil
+                                response_audio_token_cost = (api_response_audio_tokens / 1_000_000) * price_output_audio_per_mil
+                                # response_text_token_cost = (api_response_text_tokens / 1_000_000) * price_output_text_per_mil
+                            
+                            total_gemini_cost = prompt_audio_token_cost + prompt_text_token_cost + response_audio_token_cost # + response_text_token_cost
+                            
+                            logger.debug( # Added debug print for turn costs
+                                f"GeminiRealtime Turn Token Costs DEBUG: "
+                                f"Prompt Audio: ${prompt_audio_token_cost:.6f} ({api_prompt_audio_tokens} tokens), "
+                                f"Prompt Text: ${prompt_text_token_cost:.6f} ({api_prompt_text_tokens} tokens), "
+                                f"Response Audio: ${response_audio_token_cost:.6f} ({api_response_audio_tokens} tokens). "
+                                f"Turn Total: ${total_gemini_cost:.6f}"
+                            )
+                            logger.info(
+                                f"GeminiRealtime Costs: "
+                                f"Prompt Audio: ${prompt_audio_token_cost:.6f} ({api_prompt_audio_tokens} tokens), "
+                                f"Prompt Text: ${prompt_text_token_cost:.6f} ({api_prompt_text_tokens} tokens), "
+                                f"Response Audio: ${response_audio_token_cost:.6f} ({api_response_audio_tokens} tokens). "
+                                f"Total: ${total_gemini_cost:.6f}"
+                            )
+                            logger.info(
+                                f"GeminiRealtime Audio Durations (Informational): Input: {self._current_input_audio_duration_this_turn:.3f}s, Output: {self._current_output_audio_duration_this_turn:.3f}s"
+                            )
+                            logger.info( 
+                                f"GeminiRealtime Char Counts (Informational): Input: {self._current_input_chars}, Output (TTS): {self._current_output_chars}."
+                            )
+                            
+                            cost_data = {
+                                "model": self.settings.current_llm_model or self.settings.gemini_model_arg,
+                                "prompt_audio_tokens": api_prompt_audio_tokens,
+                                "prompt_text_tokens": api_prompt_text_tokens,
+                                "response_audio_tokens": api_response_audio_tokens,
+                                # "response_text_tokens": api_response_text_tokens,
+                                "prompt_audio_cost": prompt_audio_token_cost,
+                                "prompt_text_cost": prompt_text_token_cost,
+                                "response_audio_cost": response_audio_token_cost, # Cost for output audio (TTS)
+                                # "response_text_cost": response_text_token_cost,
+                                "total_cost": total_gemini_cost,
+                                "input_audio_duration_seconds": round(self._current_input_audio_duration_this_turn, 3),
+                                "output_audio_duration_seconds": round(self._current_output_audio_duration_this_turn, 3),
+                                "input_chars": self._current_input_chars, 
+                                "output_chars": self._current_output_chars,
+                                "note": "Costs are based on API-provided token counts per modality from usage_metadata."
+                            }
+                            await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
+                            
+                            assistant_metadata = ChatMessageMetadata(
+                                timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                llm_model=self.settings.current_llm_model or self.settings.gemini_model_arg,
+                                cost=cost_data,
+                                usage={ 
+                                    "prompt_audio_tokens": api_prompt_audio_tokens,
+                                    "prompt_text_tokens": api_prompt_text_tokens,
+                                    "response_audio_tokens": api_response_audio_tokens,
+                                    # "response_text_tokens": api_response_text_tokens,
+                                    "input_audio_duration_seconds": round(self._current_input_audio_duration_this_turn, 3),
+                                    "output_audio_duration_seconds": round(self._current_output_audio_duration_this_turn, 3),
+                                    "input_chars": self._current_input_chars, 
+                                    "output_chars": self._current_output_chars, 
+                                }
+                            )
+                            assistant_message = ChatMessage(role="assistant", content=full_output_text, metadata=assistant_metadata)
+                            await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": assistant_message.model_dump()}))
+                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready"}))
+                            self._reset_turn_usage_state()
+
+                        # Process errors reported within server_content
+                        error_obj_from_content = getattr(live_event_content, 'error', None)
+                        if error_obj_from_content:
+                            logger.error(f"GeminiRealtime API Error (from server_content): Code {error_obj_from_content.code}, Message: {error_obj_from_content.message}")
+                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Error: {error_obj_from_content.message}"}))
+                            error_chat_message = ChatMessage(role="assistant", content=f"[Gemini Error: {error_obj_from_content.message}]")
+                            await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": error_chat_message.model_dump()}))
+                            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "idle", "message": "Ready (after error in content)"}))
+                            self._reset_turn_usage_state()
+
+        except Exception as e:
+            logger.error(f"GeminiRealtimeHandler: Connection failed or error during session: {e}", exc_info=True)
+            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Connection Error: {str(e)}"}))
+        finally:
+            logger.info("GeminiRealtimeHandler: start_up processing loop finished.")
+            # The `async with` statement handles session closure.
+            self.session = None
+            # Signal end of stream to consumer if not already done by an error
+            # Check if output_queue.put(None) is appropriate or if the loop ending does it.
+            # The FastRTC stream expects None to terminate processing this handler instance.
+            await self.output_queue.put(None)
+
+
+    async def receive(self, frame: tuple[int, np.ndarray]) -> None:
+        if not self.session:
+            return
+
+        _, array = frame # Input rate is self.input_sample_rate (16kHz)
+        if array.ndim > 1:
+            array = array.squeeze()
+        
+        if array.dtype != np.int16:
+            array = array.astype(np.int16)
+
+        audio_bytes = array.tobytes()
+        try:
+            await self._input_audio_queue.put(audio_bytes)
+        except Exception as e:
+            logger.error(f"GeminiRealtimeHandler: Error putting audio to input_queue: {e}")
+
+
+    async def emit(self) -> tuple[int, np.ndarray] | AdditionalOutputs | None:
+        return await wait_for_item(self.output_queue)
+
+
+    async def shutdown(self) -> None:
+        logger.info("GeminiRealtimeHandler: Shutting down...")
+        # The `async with` context manager in start_up handles session closure.
+        # Setting self.session to None here helps signal _audio_input_stream to terminate.
+        self.session = None
+        
+        # Drain queues to prevent deadlocks
+        while not self._input_audio_queue.empty():
+            try:
+                self._input_audio_queue.get_nowait()
+                self._input_audio_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+        
+        self.clear_output_queue() # Use separate method for output queue
+        await self.output_queue.put(None) # Ensure emit gets None to terminate
+        logger.info("GeminiRealtimeHandler: Shutdown complete.")
+
+    def clear_output_queue(self): # Renamed from clear_queue to avoid confusion
+        while not self.output_queue.empty():
+            try:
+                self.output_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        logger.debug("GeminiRealtimeHandler: Output queue cleared.")
 
 
 # --- OpenAI Realtime Handler ---
@@ -793,51 +1227,87 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             )
                         )
                     elif event.type == "response.audio_transcript.done":
+                        logger.info(f"OpenAIRealtimeHandler: Assistant transcript received: '{event.transcript[:100]}...'")
+                        # The final processing, cost calculation, and message creation will be handled by "response.done".
+                        # We store the transcript if needed, or rely on "response.done" to contain it.
+                        # For now, this event primarily serves as a log point.
+
+                    elif event.type == "response.done":
+                        logger.info(f"OpenAIRealtimeHandler: Response done event received.")
+                        assistant_text = ""
+                        if hasattr(event, 'response') and event.response and \
+                           hasattr(event.response, 'output') and event.response.output and \
+                           len(event.response.output) > 0 and \
+                           hasattr(event.response.output[0], 'content') and event.response.output[0].content and \
+                           len(event.response.output[0].content) > 0 and \
+                           hasattr(event.response.output[0].content[0], 'text'):
+                            assistant_text = event.response.output[0].content[0].text
+                            logger.info(f"OpenAIRealtimeHandler: Assistant text from response.done: '{assistant_text[:100]}...'")
+                        else:
+                            logger.error("OpenAIRealtimeHandler: Could not extract assistant text from response.done event.")
+                            # Potentially fallback to a stored transcript if we decide to implement that,
+                            # or yield an error message. For now, proceed with empty text if not found.
+
+                        # Extract usage from event.response.usage
+                        if hasattr(event, 'response') and event.response and hasattr(event.response, 'usage'):
+                            usage_data = event.response.usage
+                            # Ensure tokens are integers, defaulting to 0 if None or attribute missing
+                            raw_input_tokens = getattr(usage_data, 'input_tokens', 0)
+                            raw_output_tokens = getattr(usage_data, 'output_tokens', 0)
+                            
+                            self.current_input_tokens = raw_input_tokens if raw_input_tokens is not None else 0
+                            self.current_output_tokens = raw_output_tokens if raw_output_tokens is not None else 0
+                            
+                            logger.info(f"OpenAIRealtimeHandler: Final tokens from response.done: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
+
+                            # Append this final usage to raw_usage_events_for_turn for completeness
+                            raw_final_usage = dict(usage_data) if hasattr(usage_data, 'dict') else vars(usage_data)
+                            self.raw_usage_events_for_turn.append({"type": event.type, "usage": raw_final_usage})
+                        else:
+                            logger.error("OpenAIRealtimeHandler: Could not extract usage data from response.done event. Token counts will be zero.")
+                            self.current_input_tokens = 0
+                            self.current_output_tokens = 0
+                        
                         # --- Cost Calculation & Metadata (OpenAI Backend - Token Based) ---
                         input_cost = 0.0
                         output_cost = 0.0
                         total_cost = 0.0
-                        # Normalize model name to lowercase for pricing lookup, as pricing keys are lowercase.
                         model_name_for_pricing = self.settings.openai_realtime_model_arg.lower()
-                        resolved_model_prices = None 
+                        resolved_model_prices = None
                         
                         try:
-                            # First, try a direct match with the (now lowercased) model name
                             resolved_model_prices = OPENAI_REALTIME_PRICING[model_name_for_pricing]
                             logger.info(f"OpenAIRealtimeHandler: Found direct pricing for model '{model_name_for_pricing}'.")
                         except KeyError:
-                            logger.info(f"OpenAIRealtimeHandler: No direct pricing found for model '{model_name_for_pricing}'. Attempting to find pricing by base model name...")
-                            # If direct match fails, try to find a base model name match
+                            logger.info(f"OpenAIRealtimeHandler: No direct pricing for '{model_name_for_pricing}'. Trying base model match...")
                             found_base_match = False
-                            for base_model_key in OPENAI_REALTIME_PRICING.keys(): # Keys are already lowercase
+                            for base_model_key in OPENAI_REALTIME_PRICING.keys():
                                 if model_name_for_pricing.startswith(base_model_key):
-                                    resolved_model_prices = OPENAI_REALTIME_PRICING[base_model_key] 
-                                    logger.info(f"OpenAIRealtimeHandler: Found pricing for '{self.settings.openai_realtime_model_arg}' (matched as '{model_name_for_pricing}') using base model key '{base_model_key}'.")
+                                    resolved_model_prices = OPENAI_REALTIME_PRICING[base_model_key]
+                                    logger.info(f"OpenAIRealtimeHandler: Found pricing for '{self.settings.openai_realtime_model_arg}' using base model key '{base_model_key}'.")
                                     found_base_match = True
                                     break
                             if not found_base_match:
                                 logger.critical(
-                                    f"OpenAIRealtimeHandler: Could not find any pricing information (direct or base model) for model '{model_name_for_pricing}' (derived from '{self.settings.openai_realtime_model_arg}') in OPENAI_REALTIME_PRICING. Cannot calculate cost."
+                                    f"OpenAIRealtimeHandler: No pricing for model '{model_name_for_pricing}' in OPENAI_REALTIME_PRICING."
                                 )
-                                raise KeyError(f"Pricing information not found for model '{model_name_for_pricing}' or its base in OPENAI_REALTIME_PRICING.")
+                                # Set costs to 0 and proceed if pricing info is missing, but log critical error.
+                                resolved_model_prices = None # Ensure it's None so costs remain 0
                         
-                        # At this point, resolved_model_prices must be populated, or an error was raised.
-                        # Direct access for "input" and "output" keys. This will raise KeyError if missing.
-                        price_input_per_mil = resolved_model_prices["input"]
-                        price_output_per_mil = resolved_model_prices["output"]
-                        # price_cached_input_per_mil = resolved_model_prices["cached_input"] # Access directly if used
+                        if resolved_model_prices:
+                            price_input_per_mil = resolved_model_prices.get("input", 0.0)
+                            price_output_per_mil = resolved_model_prices.get("output", 0.0)
 
-                        assert price_input_per_mil, "price_cached_input_per_mil shoult never be 0"
-                        assert price_output_per_mil, "price_cached_output_per_mil shoult never be 0"
+                            input_cost = (self.current_input_tokens / 1_000_000) * price_input_per_mil
+                            output_cost = (self.current_output_tokens / 1_000_000) * price_output_per_mil
+                            total_cost = input_cost + output_cost
+                            logger.info(
+                                f"OpenAIRealtime Token Costs: Input Tokens: {self.current_input_tokens}, Output Tokens: {self.current_output_tokens}. "
+                                f"Input Cost: ${input_cost:.6f}, Output Cost: ${output_cost:.6f}, Total: ${total_cost:.6f}"
+                            )
+                        else:
+                            logger.error(f"OpenAIRealtimeHandler: Cost calculation skipped due to missing pricing for model '{model_name_for_pricing}'.")
 
-                        input_cost = (self.current_input_tokens / 1_000_000) * price_input_per_mil
-                        output_cost = (self.current_output_tokens / 1_000_000) * price_output_per_mil
-                        total_cost = input_cost + output_cost
-                        logger.info(
-                            f"OpenAIRealtime Token Costs: Input Tokens: {self.current_input_tokens}, Output Tokens: {self.current_output_tokens}. "
-                            f"Input Cost: ${input_cost:.6f}, Output Cost: ${output_cost:.6f}, Total: ${total_cost:.6f}"
-                        )
-                        # No 'else' block needed here; if resolved_model_prices wasn't found, an error was already raised.
 
                         cost_data = {
                             "input_cost": input_cost,
@@ -846,11 +1316,10 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             "input_tokens": self.current_input_tokens,
                             "output_tokens": self.current_output_tokens,
                             "model": self.settings.openai_realtime_model_arg,
-                            "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2), # Informational
+                            "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2),
                             "note": "Costs are token-based. Audio duration is informational."
                         }
                         await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
-                        # --- End Cost Calculation ---
 
                         assistant_metadata = ChatMessageMetadata(
                             timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), 
@@ -862,7 +1331,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                         )
                         assistant_message = ChatMessage(
                             role="assistant", 
-                            content=event.transcript, 
+                            content=assistant_text, 
                             metadata=assistant_metadata
                         )
                         await self.output_queue.put(
@@ -877,8 +1346,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                                 }
                             )
                         )
-                        # Removed problematic final_chatbot_state with empty history
-                        # The UI should append messages as they come. 'idle' signals end of turn.
+                        self._reset_turn_usage_state() # Reset for the next full turn interaction after speech_started
 
                     elif event.type == "response.audio.delta":
                         audio_data_bytes = base64.b64decode(event.delta)
@@ -902,34 +1370,19 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
 
                         # Ensure event.usage exists. If not, direct access below will raise AttributeError.
                         if not hasattr(event, 'usage') or event.usage is None:
-                            logger.critical(f"OpenAIRealtime Usage Event ({event.type}) is missing the 'usage' object. Token parsing will fail.")
-                            raise AttributeError(f"Event {event.type} is missing the 'usage' object.")
-
-                        # Directly access input_tokens and output_tokens.
-                        # This will raise AttributeError if they are missing from event.usage.
-                        # These are expected to be integers (can be 0).
-                        logger.debug(f"OpenAIRealtimeHandler: Attempting direct attribute access on event.usage for tokens. event.usage type: {type(event.usage)}")
-                        current_event_input_tokens = event.usage.input_tokens
-                        current_event_output_tokens = event.usage.output_tokens
-                        logger.debug(f"OpenAIRealtimeHandler: Accessed tokens from event.usage: input_tokens={current_event_input_tokens}, output_tokens={current_event_output_tokens}")
-
-                        # If tokens can be None (e.g. Optional[int] in SDK) and this is an invalid state for accumulation, raise error.
-                        if current_event_input_tokens is None:
-                             logger.critical(f"OpenAIRealtime Usage Event ({event.type}): 'input_tokens' is None. This is unexpected for token accumulation.")
-                             raise ValueError(f"Event {event.type}.usage.input_tokens is None and cannot be accumulated.")
-                        if current_event_output_tokens is None:
-                             logger.critical(f"OpenAIRealtime Usage Event ({event.type}): 'output_tokens' is None. This is unexpected for token accumulation.")
-                             raise ValueError(f"Event {event.type}.usage.output_tokens is None and cannot be accumulated.")
+                            logger.warning(f"OpenAIRealtime Usage Event ({event.type}) is missing the 'usage' object. Raw logging might be incomplete.")
+                            # Do not raise, just log and potentially skip adding to raw_usage_events_for_turn
+                            raw_usage_data = {"error": "Usage object missing or None"}
+                        else:
+                            # Log the raw usage data for debugging. vars() is a good way to see attributes.
+                            logger.info(f"OpenAIRealtime Usage Event: {event.type} - Raw Usage Data: {vars(event.usage)}")
+                            # Store the raw usage object (or its dict representation)
+                            raw_usage_data = dict(event.usage) if hasattr(event.usage, 'dict') else vars(event.usage)
                         
-                        self.current_input_tokens += current_event_input_tokens
-                        self.current_output_tokens += current_event_output_tokens
-                        
-                        logger.info(f"OpenAIRealtime Usage Parsed: Input Tokens Added: {current_event_input_tokens}, Output Tokens Added: {current_event_output_tokens}. Cumulative: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
-                        
-                        # Store the raw usage object (or its dict representation)
-                        # Ensure event.usage is not None before trying to convert to dict
-                        raw_usage_data = dict(event.usage) if hasattr(event.usage, 'dict') else vars(event.usage)
                         self.raw_usage_events_for_turn.append({"type": event.type, "usage": raw_usage_data})
+                        logger.debug(f"OpenAIRealtimeHandler: Raw usage event '{event.type}' logged. Token accumulation is handled by 'response.done'.")
+                        # Token accumulation (self.current_input_tokens += ...) is removed from here.
+                        # Final token counts will be taken from the "response.done" event.
 
                     elif event.type == "error":
                         error_code = "N/A"
@@ -1095,13 +1548,13 @@ def register_endpoints(app: FastAPI, stream: Stream):
                             event_type = data_payload["type"]
                             try:
                                 event_data_json = json.dumps(data_payload, ensure_ascii=False)
-                                if settings.verbose:
-                                    logger.debug(
-                                        f"Sending SSE event: type={event_type}, data={event_data_json}..."
-                                    )
-                                else:
-                                    logger.debug(
-                                        f"Sending SSE event: type={event_type}, data={event_data_json[:100]}..."
+                                # if settings.verbose:
+                                #     logger.debug(
+                                #         f"Sending SSE event: type={event_type}, data={event_data_json}..."
+                                #     )
+                                # else:
+                                logger.debug(
+                                    f"Sending SSE event: type={event_type}, data={event_data_json[:100]}...{event_data_json[-100:]}"
                                     )
                                 yield f"event: {event_type}\ndata: {event_data_json}\n\n"
                             except TypeError as e:
@@ -1149,6 +1602,12 @@ def register_endpoints(app: FastAPI, stream: Stream):
             return JSONResponse(
                 {"available": [settings.openai_realtime_model_arg], "current": settings.openai_realtime_model_arg}
             )
+        elif settings.backend == "gemini": # Add Gemini case
+            return JSONResponse(
+                # For Gemini, model is also fixed at startup like OpenAI.
+                # Use settings.current_llm_model which is set to the gemini model during startup.
+                {"available": [settings.current_llm_model], "current": settings.current_llm_model}
+            )
         else: # classic
             return JSONResponse(
                 {"available": settings.available_models, "current": settings.current_llm_model}
@@ -1163,11 +1622,17 @@ def register_endpoints(app: FastAPI, stream: Stream):
             )
             response_data["is_openai_realtime"] = True # Add a flag for UI
             return JSONResponse(response_data)
+        elif settings.backend == "gemini": # Add Gemini case
+            response_data = prepare_available_voices_data(
+                settings.current_gemini_voice, GEMINI_LIVE_VOICES
+            )
+            response_data["is_gemini_realtime"] = True # Add a specific flag for UI
+            return JSONResponse(response_data)
         else: # classic
             response_data = prepare_available_voices_data(
                 settings.current_tts_voice, settings.available_voices_tts
             )
-            response_data["is_openai_realtime"] = False
+            response_data["is_openai_realtime"] = False # existing flag for classic
             return JSONResponse(response_data)
 
     @app.post("/switch_voice")
@@ -1203,6 +1668,28 @@ def register_endpoints(app: FastAPI, stream: Stream):
                     logger.info(f"OpenAI realtime voice already set to: {new_voice_name}")
                     return JSONResponse(
                         {"status": "success", "voice": settings.current_openai_voice}
+                    )
+            elif settings.backend == "gemini": # Add Gemini logic
+                if new_voice_name != settings.current_gemini_voice:
+                    if new_voice_name in GEMINI_LIVE_VOICES:
+                        settings.current_gemini_voice = new_voice_name
+                        logger.info(f"Switched active Gemini realtime voice to: {settings.current_gemini_voice}")
+                        # The GeminiRealtimeHandler will pick this up on the next connection.
+                        return JSONResponse(
+                            {"status": "success", "voice": settings.current_gemini_voice}
+                        )
+                    else:
+                        logger.warning(
+                            f"Attempted to switch Gemini realtime voice to '{new_voice_name}' which is not in the available list: {GEMINI_LIVE_VOICES}"
+                        )
+                        return JSONResponse(
+                            {"status": "error", "message": f"Voice '{new_voice_name}' is not available for Gemini realtime backend."},
+                            status_code=400,
+                        )
+                else:
+                    logger.info(f"Gemini realtime voice already set to: {new_voice_name}")
+                    return JSONResponse(
+                        {"status": "success", "voice": settings.current_gemini_voice}
                     )
             else: # Classic backend logic
                 if new_voice_name != settings.current_tts_voice:
@@ -1280,14 +1767,11 @@ def register_endpoints(app: FastAPI, stream: Stream):
 
     @app.post("/switch_tts_speed")
     async def switch_tts_speed(request: Request):
-        if settings.backend == "openai":
-            # OpenAI Realtime API might have speed control, but it's not exposed via this app's settings in the same way.
-            # The 'output_audio_generation' parameters in OpenAI's API can include 'speed'.
-            # For now, this app doesn't allow changing it for OpenAI backend.
-            logger.info("TTS speed adjustment requested for OpenAI backend, which is not currently user-configurable via this app's UI.")
+        if settings.backend == "openai" or settings.backend == "gemini": # Add Gemini here
+            logger.info(f"TTS speed adjustment requested for {settings.backend} backend, which is not currently user-configurable via this app's UI.")
             return JSONResponse(
-                {"status": "info", "message": "TTS speed adjustment for OpenAI realtime backend is handled by OpenAI or not user-configurable through this app."},
-                status_code=200, # Not an error, just info.
+                {"status": "info", "message": f"TTS speed adjustment for {settings.backend} realtime backend is handled by the provider or not user-configurable through this app."},
+                status_code=200,
             )
         # Classic backend logic
         try:
@@ -1341,11 +1825,10 @@ def register_endpoints(app: FastAPI, stream: Stream):
 
     @app.post("/switch_model")
     async def switch_model(request: Request):
-        if settings.backend == "openai":
-            # Model switching for OpenAI backend is not supported via this endpoint as it's set at startup.
-            logger.warning("Attempt to switch model for OpenAI backend via API, which is not supported post-startup.")
+        if settings.backend == "openai" or settings.backend == "gemini": # Add Gemini here
+            logger.warning(f"Attempt to switch model for {settings.backend} backend via API, which is not supported post-startup.")
             return JSONResponse(
-                {"status": "error", "message": "Switching OpenAI realtime model via API is not supported. Model is fixed at startup."},
+                {"status": "error", "message": f"Switching {settings.backend} realtime model via API is not supported. Model is fixed at startup."},
                 status_code=400,
             )
         else: # classic backend
@@ -1450,9 +1933,9 @@ def register_endpoints(app: FastAPI, stream: Stream):
 
     @app.get("/tts_audio/{run_timestamp}/{filename}")
     async def get_tts_audio(run_timestamp: str, filename: str):
-        if settings.backend == "openai":
-            logger.warning(f"Request to /tts_audio for '{filename}' when using OpenAI backend. This endpoint is for classic backend.")
-            raise HTTPException(status_code=404, detail="TTS audio file serving not applicable for OpenAI backend.")
+        if settings.backend == "openai" or settings.backend == "gemini": # Add Gemini Here
+            logger.warning(f"Request to /tts_audio for '{filename}' when using {settings.backend} backend. This endpoint is for classic backend.")
+            raise HTTPException(status_code=404, detail=f"TTS audio file serving not applicable for {settings.backend} backend.")
 
         if not settings.tts_audio_dir: 
              logger.error("settings.tts_audio_dir not configured for classic backend, cannot serve audio.")
@@ -1578,10 +2061,10 @@ def monitor_heartbeat_thread():
 )
 @click.option(
     "--backend",
-    type=click.Choice(["classic", "openai"], case_sensitive=False),
+    type=click.Choice(["classic", "openai", "gemini"], case_sensitive=False), # Add "gemini"
     default="classic",
     show_default=True,
-    help="Backend to use for voice processing. 'classic' uses separate STT/LLM/TTS. 'openai' uses OpenAI's realtime voice API.",
+    help="Backend to use for voice processing. 'classic' uses separate STT/LLM/TTS. 'openai' uses OpenAI's realtime voice API. 'gemini' uses Google's Gemini Live Connect API (Alpha).",
 )
 @click.option(
     "--openai-realtime-model",
@@ -1606,6 +2089,31 @@ def monitor_heartbeat_thread():
     default=OPENAI_API_KEY_ENV,
     show_default=True,
     help="API key for OpenAI services (REQUIRED if --backend=openai). (Env: OPENAI_API_KEY)",
+)
+# Add Gemini CLI options
+@click.option(
+    "--gemini-model",
+    type=str,
+    envvar="GEMINI_MODEL",
+    default=GEMINI_MODEL_ENV,
+    show_default=True,
+    help="Gemini model to use (if --backend=gemini). (Env: GEMINI_MODEL)",
+)
+@click.option(
+    "--gemini-voice",
+    type=str,
+    envvar="GEMINI_VOICE",
+    default=GEMINI_VOICE_ENV,
+    show_default=True,
+    help="Default voice for Gemini backend (if --backend=gemini). (Env: GEMINI_VOICE)",
+)
+@click.option(
+    "--gemini-api-key",
+    type=str,
+    envvar="GEMINI_API_KEY",
+    default=GEMINI_API_KEY_ENV,
+    show_default=True,
+    help="API key for Google Gemini services (REQUIRED if --backend=gemini). (Env: GEMINI_API_KEY)",
 )
 @click.option(
     "--llm-host",
@@ -1769,6 +2277,9 @@ def main(
     openai_realtime_model: str,
     openai_realtime_voice: str, # New CLI option for OpenAI backend voice
     openai_api_key: Optional[str], 
+    gemini_model: str,             # Add Gemini arg
+    gemini_voice: str,             # Add Gemini arg
+    gemini_api_key: Optional[str], # Add Gemini arg
     llm_host: Optional[str],
     llm_port: Optional[str],
     llm_model: str,
@@ -1799,6 +2310,9 @@ def main(
     settings.openai_realtime_model_arg = openai_realtime_model
     settings.openai_realtime_voice_arg = openai_realtime_voice # Store initial arg
     settings.openai_api_key = openai_api_key 
+    settings.gemini_model_arg = gemini_model       # Store Gemini arg
+    settings.gemini_voice_arg = gemini_voice       # Store Gemini arg
+    settings.gemini_api_key = gemini_api_key       # Store Gemini arg
 
     settings.preferred_port = port
     settings.host = host
@@ -1843,8 +2357,10 @@ def main(
     
     logger.info(f"Application Version: {APP_VERSION}")
     logger.info(f"Using backend: {settings.backend}")
+    if settings.backend == "gemini":
+        logger.warning("The Gemini Live Connect API backend is experimental (uses v1alpha).")
 
-    # --- STT Language (Common to both backends) ---
+    # --- STT Language (Common to all backends that support it) ---
     settings.stt_language_arg = stt_language 
     if settings.stt_language_arg:
         logger.info(f"STT language specified: {settings.stt_language_arg}")
@@ -1909,6 +2425,55 @@ def main(
             logger.warning("Classic TTS host/port/model/voice/api-key/speed parameters are ignored when using 'openai' backend.")
         
         settings.current_tts_speed = 1.0 # Not user-configurable for OpenAI backend via this app
+
+    elif settings.backend == "gemini": # Add Gemini setup block
+        logger.info("Configuring for 'gemini' backend.")
+        settings.available_models = GEMINI_LIVE_MODELS # Use the list from config
+
+        if not settings.available_models:
+            logger.critical("GEMINI_LIVE_MODELS list is empty. Cannot proceed with Gemini. Exiting.")
+            return 1
+        
+        chosen_model = settings.gemini_model_arg
+        if chosen_model in settings.available_models:
+            settings.current_llm_model = chosen_model # Store the chosen Gemini model here
+        else:
+            logger.warning(
+                f"Gemini model '{chosen_model}' (from --gemini-model or env) "
+                f"is not in the list of supported models: {settings.available_models}. "
+                f"Defaulting to the first available model: '{settings.available_models[0]}'."
+            )
+            settings.current_llm_model = settings.available_models[0]
+        logger.info(f"Gemini Live Model set to: {settings.current_llm_model}")
+        settings.model_cost_data = {} # Cost for Gemini live is character-based, handled by handler.
+
+        if not settings.gemini_api_key:
+            logger.critical("Gemini API Key (--gemini-api-key or GEMINI_API_KEY env) is REQUIRED for 'gemini' backend. Exiting.")
+            return 1
+        logger.info("Using dedicated Gemini API Key for 'gemini' backend.")
+
+        settings.available_voices_tts = GEMINI_LIVE_VOICES # Populate for UI dropdown
+        initial_gemini_voice_preference = settings.gemini_voice_arg
+        if initial_gemini_voice_preference and initial_gemini_voice_preference in GEMINI_LIVE_VOICES:
+            settings.current_gemini_voice = initial_gemini_voice_preference
+        elif GEMINI_LIVE_VOICES: # Check if list is not empty
+            if initial_gemini_voice_preference: # Log warning only if a preference was given but not found
+                 logger.warning(f"Gemini voice '{initial_gemini_voice_preference}' not found. Using first available: {GEMINI_LIVE_VOICES[0]}.")
+            settings.current_gemini_voice = GEMINI_LIVE_VOICES[0]
+        else: # Should not happen if GEMINI_LIVE_VOICES is populated
+            settings.current_gemini_voice = initial_gemini_voice_preference # Fallback to user preference
+            logger.error(f"No Gemini voices available or specified voice '{settings.current_gemini_voice}' is invalid. Voice may not work.")
+        logger.info(f"Initial Gemini voice set to: {settings.current_gemini_voice}")
+
+        # Log warnings if classic backend STT/TTS params are provided unnecessarily
+        # (STT language is common, so not warned here if stt_language is provided)
+        if stt_host != STT_HOST_ENV or stt_port != STT_PORT_ENV or stt_model != STT_MODEL_ENV or stt_api_key is not None:
+            logger.warning("Classic STT host/port/model/api-key parameters are ignored when using 'gemini' backend (except STT language).")
+        if tts_host != TTS_HOST_ENV or tts_port != TTS_PORT_ENV or tts_model != TTS_MODEL_ENV or tts_voice != DEFAULT_VOICE_TTS_ENV or tts_api_key is not None or tts_speed != float(DEFAULT_TTS_SPEED_ENV):
+            logger.warning("Classic TTS host/port/model/voice/api-key/speed parameters are ignored when using 'gemini' backend.")
+        
+        settings.current_tts_speed = 1.0 # Not user-configurable for Gemini backend via this app
+
 
     elif settings.backend == "classic":
         logger.info(f"Configuring for 'classic' backend.")
@@ -2132,8 +2697,8 @@ def main(
             logger.info(f"This run's TTS audio directory (classic backend): {settings.tts_audio_dir}")
         except Exception as e:
             logger.error(f"Failed to create temporary TTS audio directory for classic backend: {e}. TTS audio saving might fail.")
-    else: 
-        logger.info("TTS audio file saving to disk is not applicable for 'openai' backend.")
+    elif settings.backend == "openai" or settings.backend == "gemini": # Add Gemini
+        logger.info(f"TTS audio file saving to disk is not applicable for '{settings.backend}' backend.")
         settings.tts_audio_dir = None 
 
 
@@ -2147,6 +2712,9 @@ def main(
     if settings.backend == "openai":
         logger.info("Initializing Stream with OpenAIRealtimeHandler.")
         stream_handler = OpenAIRealtimeHandler(app_settings=settings)
+    elif settings.backend == "gemini": # Add Gemini case
+        logger.info("Initializing Stream with GeminiRealtimeHandler.")
+        stream_handler = GeminiRealtimeHandler(app_settings=settings)
     else: 
         logger.info("Initializing Stream with ReplyOnPause handler for classic backend.")
         stream_handler = ReplyOnPause(
@@ -2172,7 +2740,9 @@ def main(
             "echoCancellation": True,
             "noiseSuppression": {"exact": True}, 
             "autoGainControl": {"exact": True},  
-            "sampleRate": {"ideal": OPENAI_REALTIME_SAMPLE_RATE}, 
+            # Ideal sample rate should match what the handler expects as input.
+            # OpenAI expects 24kHz. Gemini expects 16kHz. Classic is flexible.
+            "sampleRate": {"ideal": GEMINI_REALTIME_INPUT_SAMPLE_RATE if settings.backend == "gemini" else (OPENAI_REALTIME_SAMPLE_RATE if settings.backend == "openai" else 16000)}, 
             "sampleSize": {"ideal": 16},
             "channelCount": {"exact": 1},
         },

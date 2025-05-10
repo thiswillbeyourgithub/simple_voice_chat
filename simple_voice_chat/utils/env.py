@@ -63,6 +63,12 @@ OPENAI_API_KEY_ENV: Optional[str] = os.getenv("OPENAI_API_KEY") # Dedicated key 
 OPENAI_REALTIME_MODEL_ENV: str = os.getenv("OPENAI_REALTIME_MODEL", "gpt-4o-mini-realtime-preview-2024-12-17")
 OPENAI_REALTIME_VOICE_ENV: str = os.getenv("OPENAI_REALTIME_VOICE", "alloy") # Default voice for OpenAI realtime backend
 
+# --- Gemini Backend Configuration ---
+GEMINI_API_KEY_ENV: Optional[str] = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL_ENV: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp") # Default to the known model
+GEMINI_VOICE_ENV: str = os.getenv("GEMINI_VOICE", "Puck") # Default voice for Gemini backend
+
+
 # --- Application Configuration ---
 APP_PORT_ENV: str = os.getenv("APP_PORT", "7860")  # Keep as string for argparse default
 
@@ -101,6 +107,10 @@ __all__ = [
     "OPENAI_API_KEY_ENV",
     "OPENAI_REALTIME_MODEL_ENV",
     "OPENAI_REALTIME_VOICE_ENV",
+    # Gemini Backend
+    "GEMINI_API_KEY_ENV",
+    "GEMINI_MODEL_ENV",
+    "GEMINI_VOICE_ENV",
     # App
     "APP_PORT_ENV",
     # Misc

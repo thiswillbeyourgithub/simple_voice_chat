@@ -15,7 +15,7 @@ def _read_readme(filename="README.md"):
 
 setuptools.setup(
     name="simple-voice-chat", # CHANGEME: Verify or change the package name
-    version="3.4.0",
+    version="4.0.0",
     author="thiswillbeyourgithub",
     description="A simple voice chat interface using configurable LLM, STT, and TTS providers.",
     long_description=_read_readme(),
@@ -55,6 +55,7 @@ setuptools.setup(
         "litellm>=1.67.2",
         "loguru>=0.7.3",
         "platformdirs>=4.3.7"
+        "google-genai >= 1.14.0",
     ],
 
     # Define entry points, e.g., console scripts

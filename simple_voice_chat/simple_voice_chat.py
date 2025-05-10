@@ -219,38 +219,73 @@ async def response(
         }
     )
 
-    # --- Speech-to-Text using imported function ---
-    stt_success, prompt, stt_response_obj, stt_error = await transcribe_audio(
-        audio,
-        settings.stt_client,
-        settings.stt_model_arg, # Use the model name from initial args/env
-        settings.current_stt_language,
-        settings.stt_api_base,
-    )
+    # --- Speech-to-Text using imported function with Retry ---
+    stt_success = False
+    prompt = ""
+    stt_response_obj = None
+    stt_error: Optional[str] = "STT not attempted." # Default error message
+
+    MAX_STT_RETRIES = 12  # 1 minute / 5 seconds per retry
+    STT_RETRY_DELAY = 5  # seconds
+
+    for attempt in range(MAX_STT_RETRIES):
+        logger.info(f"STT attempt {attempt + 1}/{MAX_STT_RETRIES}...")
+        current_stt_success, current_prompt, current_stt_response_obj, current_stt_error = await transcribe_audio(
+            audio,
+            settings.stt_client,
+            settings.stt_model_arg, # Use the model name from initial args/env
+            settings.current_stt_language,
+            settings.stt_api_base,
+        )
+
+        if current_stt_success:
+            stt_success = True
+            prompt = current_prompt
+            stt_response_obj = current_stt_response_obj
+            stt_error = None # Clear error on success
+            logger.info(f"STT successful on attempt {attempt + 1}.")
+            break
+        else:
+            stt_error = current_stt_error # Store the last error
+            logger.warning(f"STT attempt {attempt + 1} failed: {stt_error}")
+            if attempt < MAX_STT_RETRIES - 1:
+                logger.info(f"Waiting {STT_RETRY_DELAY}s before next STT attempt...")
+                # Let UI know we are retrying STT
+                yield AdditionalOutputs(
+                    {
+                        "type": "status_update",
+                        "status": "stt_retrying",
+                        "message": f"Retrying STT ({attempt + 2}/{MAX_STT_RETRIES})...",
+                    }
+                )
+                await asyncio.sleep(STT_RETRY_DELAY)
+            else:
+                logger.error(f"STT failed after {MAX_STT_RETRIES} attempts. Last error: {stt_error}")
 
     if not stt_success:
-        logger.error(f"STT failed: {stt_error}")
-        stt_error_msg = {
+        # This block executes if STT failed after all retries
+        stt_error_msg_content = f"[STT Error after retries: {stt_error or 'Unknown STT failure'}]"
+        stt_error_msg_dict = {
             "role": "assistant",
-            "content": f"[STT Error: {stt_error or 'Unknown STT failure'}]",
+            "content": stt_error_msg_content,
         }
-        yield AdditionalOutputs({"type": "chatbot_update", "message": stt_error_msg})
-        # Yield final state and status even on STT error to reset frontend
-        logger.warning("Yielding final state after STT error...")
+        yield AdditionalOutputs({"type": "chatbot_update", "message": stt_error_msg_dict})
+        
+        logger.warning("Yielding final state after STT failure (all retries exhausted)...")
         yield AdditionalOutputs(
             {
                 "type": "final_chatbot_state",
                 "history": current_chatbot,
-            }  # Yield original state
+            } 
         )
         yield AdditionalOutputs(
             {
                 "type": "status_update",
                 "status": "idle",
-                "message": "Ready (after STT error)",
+                "message": "Ready (STT failed)",
             }
         )
-        logger.info("--- Exiting response function after STT error ---")
+        logger.info("--- Exiting response function after STT failure (all retries exhausted) ---")
         return
 
     # --- STT Confidence Check using imported function ---

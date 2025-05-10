@@ -789,6 +789,15 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             # This requires knowing the exact structure and objects from google-generativeai.
         )
 
+        if self.settings.system_message:
+            logger.info(f"GeminiRealtimeHandler: Adding system message to LiveConnectConfig: \"{self.settings.system_message[:100]}...\"")
+            live_connect_config["system_instruction"] = genai.types.Content(
+                parts=[genai.types.Part(text=self.settings.system_message)]
+            )
+            # Optional: If you want the system message to appear in the UI immediately via server push
+            # This would require waiting for connection and then sending an AdditionalOutput, which is complex here.
+            # The system message will be part of the chat history implicitly handled by the model.
+
         try:
             self._reset_turn_usage_state()
             selected_model = self.settings.current_llm_model or self.settings.gemini_model_arg # Fallback to arg if current not set
@@ -797,22 +806,6 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             async with self.client.aio.live.connect(model=selected_model, config=live_connect_config) as session:
                 self.session = session
                 logger.info(f"GeminiRealtimeHandler: Connection established with model {selected_model}, voice {self.current_gemini_voice or 'default'}.")
-                
-                # Send system message if provided
-                if self.settings.system_message:
-                    logger.info(f"GeminiRealtimeHandler: Sending system message to session: \"{self.settings.system_message[:100]}...\"")
-                    try:
-                        await self.session.process_text_input(text=self.settings.system_message)
-                        logger.info("GeminiRealtimeHandler: System message sent successfully.")
-                        # Optional: If you want the system message to appear in the UI immediately via server push
-                        # system_chat_message = ChatMessage(
-                        #     role="system",
-                        #     content=self.settings.system_message,
-                        #     metadata=ChatMessageMetadata(timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat())
-                        # )
-                        # await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": system_chat_message.model_dump()}))
-                    except Exception as e_sys_msg:
-                        logger.error(f"GeminiRealtimeHandler: Failed to send system message: {e_sys_msg}")
                 
                 await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "stt_processing", "message": "Listening..."}))
 

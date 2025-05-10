@@ -1587,8 +1587,6 @@
             });
 
             eventSource.addEventListener("cost_update", (event) => {
-                // Removed the conditional block that ignored OpenAI backend costs.
-                // Now, cost_updates from both backends will be processed by updateCostDisplay.
                 try {
                     const eventJson = JSON.parse(event.data);
                     console.log("Cost update event received:", eventJson);
@@ -1693,54 +1691,89 @@
         function updateCostDisplay(costData) {
             console.log("Received cost data for display:", costData); 
 
+            const inputCostLabel = document.querySelector('#cost-details .cost-item:nth-child(1) .cost-label');
+            const outputCostLabel = document.querySelector('#cost-details .cost-item:nth-child(2) .cost-label');
+            const ttsCostLabel = document.querySelector('#cost-details .cost-item:nth-child(3) .cost-label');
+            const outputCostItem = document.querySelector('#cost-details .cost-item:nth-child(2)');
+
+
             if (!costData || typeof costData !== 'object') {
                 console.error("Invalid or missing cost data received.");
                 document.getElementById('input-cost').textContent = 'Err';
-                // document.getElementById('cached-cost').textContent = 'Err'; // Removed
                 document.getElementById('output-cost').textContent = 'Err';
                 document.getElementById('tts-cost').textContent = 'Err'; 
                 document.getElementById('total-cost').textContent = 'Err';
                 return;
             }
 
+            // Adjust labels and visibility for Gemini
+            if (currentBackend === 'gemini') {
+                if (inputCostLabel) inputCostLabel.textContent = 'STT Chars:'; // Or just "STT Cost:"
+                if (outputCostItem) outputCostItem.style.display = 'none'; // Hide "LLM Output" for Gemini as it's not a separate cost
+                if (ttsCostLabel) ttsCostLabel.textContent = 'TTS Chars:'; // Or "TTS Cost:"
+                 // If costData contains char counts, you could display them instead of/alongside cost
+            } else if (currentBackend === 'openai') {
+                 if (inputCostLabel) inputCostLabel.textContent = 'Input Tokens:';
+                 if (outputCostLabel) outputCostLabel.textContent = 'Output Tokens:';
+                 if (outputCostItem) outputCostItem.style.display = 'flex';
+                 if (ttsCostLabel) ttsCostLabel.textContent = 'Output Audio (s):'; // OpenAI output audio duration
+            } else { // Classic
+                if (inputCostLabel) inputCostLabel.textContent = 'LLM Input:';
+                if (outputCostLabel) outputCostLabel.textContent = 'LLM Output:';
+                if (outputCostItem) outputCostItem.style.display = 'flex';
+                if (ttsCostLabel) ttsCostLabel.textContent = 'TTS:';
+            }
+
+
             try {
-                let currentInputCost = 0.0;
-                let currentOutputCost = 0.0;
-                let currentTtsCost = 0.0; 
+                let currentInputCostVal = 0.0; // This will be STT cost for Gemini
+                let currentOutputCostVal = 0.0; // This is LLM text cost for classic/OpenAI, N/A for Gemini display
+                let currentTtsCostVal = 0.0; // This will be TTS audio synthesis cost (chars for Gemini, duration for OpenAI, chars for classic OpenAI TTS)
                 let calculationError = false;
+
 
                 if (costData.error) {
                     console.warn(`Cost calculation error from backend: ${costData.error}`);
                     document.getElementById('input-cost').textContent = 'N/A';
-                    // document.getElementById('cached-cost').textContent = 'N/A'; // Removed
                     document.getElementById('output-cost').textContent = 'N/A';
+                    document.getElementById('tts-cost').textContent = 'N/A';
                     calculationError = true; 
                 } else {
-                    currentInputCost = parseFloat(costData.input_cost) || 0.0;
-                    currentOutputCost = parseFloat(costData.output_cost) || 0.0;
+                    currentInputCostVal = parseFloat(costData.input_cost) || 0.0;
+                    currentOutputCostVal = parseFloat(costData.output_cost) || 0.0; // Will be 0 for Gemini
+                    currentTtsCostVal = parseFloat(costData.tts_cost) || 0.0; // For Gemini, this is TTS cost
 
-                    cumulativeInputCost += currentInputCost;
-                    cumulativeOutputCost += currentOutputCost;
+                    cumulativeInputCost += currentInputCostVal;
+                    cumulativeOutputCost += currentOutputCostVal; // Stays 0 for Gemini display of this line item
+                    cumulativeTtsCost += currentTtsCostVal;
 
-                    document.getElementById('input-cost').textContent = formatCostDisplay(cumulativeInputCost);
-                    document.getElementById('output-cost').textContent = formatCostDisplay(cumulativeOutputCost);
+                    // Displaying based on backend
+                    if (currentBackend === 'gemini') {
+                        document.getElementById('input-cost').textContent = costData.input_chars !== undefined ? `${costData.input_chars}ch ($${formatCostDisplay(cumulativeInputCost)})` : formatCostDisplay(cumulativeInputCost);
+                        // output-cost item is hidden via style
+                        document.getElementById('tts-cost').textContent = costData.output_chars !== undefined ? `${costData.output_chars}ch ($${formatCostDisplay(cumulativeTtsCost)})` : formatCostDisplay(cumulativeTtsCost);
+                    } else if (currentBackend === 'openai') {
+                        document.getElementById('input-cost').textContent = costData.input_tokens !== undefined ? `${costData.input_tokens} tok ($${formatCostDisplay(cumulativeInputCost)})` : formatCostDisplay(cumulativeInputCost);
+                        document.getElementById('output-cost').textContent = costData.output_tokens !== undefined ? `${costData.output_tokens} tok ($${formatCostDisplay(cumulativeOutputCost)})` : formatCostDisplay(cumulativeOutputCost);
+                        document.getElementById('tts-cost').textContent = costData.output_audio_duration_seconds !== undefined ? `${costData.output_audio_duration_seconds.toFixed(1)}s` : 'N/A'; // OpenAI doesn't directly bill TTS by char/cost here for Realtime speech
+                    } else { // Classic
+                        document.getElementById('input-cost').textContent = formatCostDisplay(cumulativeInputCost);
+                        document.getElementById('output-cost').textContent = formatCostDisplay(cumulativeOutputCost);
+                        document.getElementById('tts-cost').textContent = formatCostDisplay(cumulativeTtsCost);
+                    }
                 }
-
-                currentTtsCost = parseFloat(costData.tts_cost) || 0.0;
-                cumulativeTtsCost += currentTtsCost;
-                document.getElementById('tts-cost').textContent = formatCostDisplay(cumulativeTtsCost);
-
+                
                 if (calculationError) {
                     document.getElementById('total-cost').textContent = 'Error';
                 } else {
                     cumulativeTotalCost = cumulativeInputCost + cumulativeOutputCost + cumulativeTtsCost;
                     document.getElementById('total-cost').textContent = '$' + formatCostDisplay(cumulativeTotalCost);
                 }
-                console.log(`Updated cumulative costs - Added LLM Input: $${currentInputCost.toFixed(6)}, LLM Output: $${currentOutputCost.toFixed(6)}, TTS: $${currentTtsCost.toFixed(6)} | New Total: $${cumulativeTotalCost.toFixed(6)} (Display: ${formatCostDisplay(cumulativeTotalCost)})`);
+                console.log(`Updated cumulative costs - Added Input: $${currentInputCostVal.toFixed(6)}, Output: $${currentOutputCostVal.toFixed(6)}, TTS: $${currentTtsCostVal.toFixed(6)} | New Total: $${cumulativeTotalCost.toFixed(6)} (Display: ${formatCostDisplay(cumulativeTotalCost)})`);
+
             } catch (error) {
                 console.error("Unexpected error updating cost display:", error, costData);
                 document.getElementById('input-cost').textContent = 'Err';
-                // document.getElementById('cached-cost').textContent = 'Err'; // Removed
                 document.getElementById('output-cost').textContent = 'Err';
                 document.getElementById('tts-cost').textContent = 'Err';
                 document.getElementById('total-cost').textContent = 'Err';
@@ -2426,9 +2459,32 @@
 
 
         voiceInput.addEventListener('change', async () => {
-            if (currentBackend === 'openai') return; // Voice selection not for OpenAI backend
-            const newVoice = voiceInput.value.trim(); 
-            const previousVoice = selectedVoice;
+            // Removed: if (currentBackend === 'openai') return; // Now handles gemini too
+            if (currentBackend === 'classic') { /* original classic logic only */ }
+            else if (currentBackend === 'openai' || currentBackend === 'gemini') { /* new logic for realtime backends */
+                const newVoice = voiceInput.value.trim();
+                const previousVoice = selectedVoice; // selectedVoice should be current_openai_voice or current_gemini_voice
+                console.log(`${currentBackend} voice input changed to: ${newVoice}`);
+
+                const availableVoiceOptions = (currentBackend === 'openai' ? OPENAI_REALTIME_VOICES : GEMINI_LIVE_VOICES);
+                const isValidVoice = availableVoiceOptions.includes(newVoice);
+
+                if (!isValidVoice) {
+                    console.warn(`Invalid ${currentBackend} voice selected: "${newVoice}". Reverting.`);
+                    showToast(`Voice "${newVoice}" not found for ${currentBackend}. Please select from the list.`, 'warning');
+                    voiceInput.value = previousVoice;
+                    return;
+                }
+                if (newVoice === previousVoice) {
+                    console.log(`${currentBackend} voice selection hasn't changed. No action needed.`);
+                    return;
+                }
+                // The rest of the fetch logic for /switch_voice is fine as endpoint handles backend type.
+            }
+            // The fetch and subsequent logic remains similar, as the backend /switch_voice endpoint
+            // already differentiates based on settings.backend.
+            const newVoice = voiceInput.value.trim();
+            const previousVoice = selectedVoice; // This needs to be correct for the current backend state
             console.log(`Voice input changed to: ${newVoice}`);
 
             const isValidVoice = allVoiceOptions.some(opt => opt.value === newVoice);
@@ -2644,7 +2700,9 @@
         });
 
         voiceInput.addEventListener('input', () => {
-            if (currentBackend === 'openai') return;
+            // Remove: if (currentBackend === 'openai') return;
+            // This can be generalized or use a flag if OpenAI/Gemini voice search is different from classic
+            // For now, assuming fuzzy search is fine for all if allVoiceOptions is correctly populated
             const query = voiceInput.value.trim();
             console.debug(`Voice input event: query="${query}"`);
             clearTimeout(voiceSearchTimeout);
@@ -2690,7 +2748,7 @@
         });
 
         voiceInput.addEventListener('focus', () => {
-            if (currentBackend === 'openai') return;
+            // Remove: if (currentBackend === 'openai') return;
             voiceInput.select(); 
         });
 

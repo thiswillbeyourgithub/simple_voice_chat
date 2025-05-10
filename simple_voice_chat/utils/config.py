@@ -43,19 +43,19 @@ OPENAI_REALTIME_MODELS = list(OPENAI_REALTIME_PRICING.keys())
 
 # gemini backend is not yet implemented but will soon be
 GEMINI_LIVE_PRICING = {
-    # price per 1M audio token
+    # price per 1M characters
     # source: https://ai.google.dev/gemini-api/docs/pricing
-    "input": "2.10",
-    "output": "8.50",
+    "input": 2.10,  # For Speech-to-Text
+    "output": 8.50, # For Text-to-Speech
 }
 # only one supported model so far
-GEMINI_LIVE_MODELS = ["gemini-2.0-flash-exp"]
-GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
+GEMINI_LIVE_MODELS = ["gemini-2.0-flash-exp"] # TODO: Potentially update if more models supporting LiveConnect become available
+GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"] # TODO: Verify these are all compatible with LiveConnect
 
 # --- End Application Constants ---
 
 # Import env var for Pydantic default
-from .env import OPENAI_REALTIME_MODEL_ENV
+from .env import OPENAI_REALTIME_MODEL_ENV, GEMINI_API_KEY_ENV, GEMINI_MODEL_ENV, GEMINI_VOICE_ENV # Add Gemini env vars
 
 class AppSettings(BaseModel):
     """
@@ -80,6 +80,13 @@ class AppSettings(BaseModel):
     startup_timestamp_str: Optional[str] = None # For log filenames etc.
     backend: str = "classic"
     openai_realtime_model_arg: str = OPENAI_REALTIME_MODEL_ENV
+    # Add after openai_realtime_model_arg
+
+    # --- Gemini Backend Config ---
+    gemini_api_key: Optional[str] = None # Populated from args/env
+    gemini_model_arg: str = GEMINI_MODEL_ENV # Initial preference from args/env
+    gemini_voice_arg: Optional[str] = GEMINI_VOICE_ENV # Initial preference for Gemini voice
+    current_gemini_voice: Optional[str] = None # Actual current voice for Gemini backend
 
 
     # --- LLM Config (Classic Backend) ---
@@ -157,6 +164,9 @@ __all__ = [
     "OPENAI_REALTIME_MODELS",
     "OPENAI_REALTIME_VOICES",
     "OPENAI_REALTIME_PRICING",
+    "GEMINI_LIVE_PRICING", # Add Gemini constant
+    "GEMINI_LIVE_MODELS",  # Add Gemini constant
+    "GEMINI_LIVE_VOICES",  # Add Gemini constant
     "settings",
     "AppSettings",
 ]

@@ -46,8 +46,12 @@ GEMINI_LIVE_PRICING = {
     # price per 1M tokens
     # Audio is tokenized at 32 tokens per second.
     # Pricing based on Gemini 1.5 Flash input/output token costs as a proxy, as per https://ai.google.dev/gemini-api/docs/pricing
-    "input_audio_tokens": 0.35,  # For STT (input audio tokens)
-    "output_audio_tokens": 1.05, # For TTS (output audio tokens)
+    "input_text_tokens": 0.35,
+    "output_text_tokens": 1.50,
+    "cached_text": 0.025,
+    "cached_audio": 0.175,
+    "input_audio_tokens": 2.10,  # For STT (input audio tokens)
+    "output_audio_tokens": 8.5, # For TTS (output audio tokens)
 }
 # only one supported model so far
 GEMINI_LIVE_MODELS = ["gemini-2.0-flash-exp"] # TODO: Potentially update if more models supporting LiveConnect become available

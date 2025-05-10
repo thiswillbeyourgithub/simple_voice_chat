@@ -1160,6 +1160,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
 
     async def start_up(self):
         from openai.types.beta.realtime.sessions import (
+            SessionUpdateParams, # Added import
             TurnDetectionServerVad,
             InputAudioTranscriptionWhisper
         )
@@ -1190,13 +1191,14 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
         input_audio_transcription_config = InputAudioTranscriptionWhisper(**transcription_model_args)
         
         # Parameters for session.update()
-        session_params: Dict[str, Any] = {
-            "turn_detection": turn_detection_config,
-            "input_audio_transcription": input_audio_transcription_config,
+        # Constructing SessionUpdateParams directly for type safety
+        session_params = SessionUpdateParams(
+            turn_detection=turn_detection_config,
+            input_audio_transcription=input_audio_transcription_config,
             # "output_audio_generation" and voice selection removed as it causes an error
             # with the default OpenAI Realtime model (e.g., gpt-4o-mini-realtime-preview-2024-12-17).
             # The API will likely use a default voice or one associated with the account/model.
-        }
+        )
         # --- End session parameters preparation ---
         
         if self.current_openai_voice:

@@ -1721,6 +1721,7 @@
                 if (outputCostLabel) outputCostLabel.textContent = 'LLM Output:';
                 if (outputCostItem) outputCostItem.style.display = 'flex';
                 if (ttsCostLabel) ttsCostLabel.textContent = 'TTS:';
+            } // Added missing closing brace for the 'else { // Classic ... }' block
             try {
                 let currentTransactionInputCost = 0.0;    // Cost for input processing (STT, LLM input prompt)
                 let currentTransactionOutputCost = 0.0;   // Cost for LLM text generation (if applicable for display)

@@ -701,11 +701,11 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             input_sample_rate=GEMINI_REALTIME_INPUT_SAMPLE_RATE,  # Gemini input is 16kHz
         )
         self.settings = app_settings
-        self.client: Optional[genai.Client] = None 
+        self.client: Optional[genai.Client] = None
         self.session: Optional[genai.live.AsyncLiveConnectSession] = None
         self._input_audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self.output_queue: asyncio.Queue = asyncio.Queue() # For (sample_rate, np.ndarray) or AdditionalOutputs
-        self.current_stt_language = self.settings.current_stt_language # TODO: Verify how to use this with Gemini Live
+        self.current_stt_language_code = self.settings.current_stt_language # Store the language code
         self.current_gemini_voice = self.settings.current_gemini_voice
 
         # State for cost calculation (Gemini Backend - Character based)
@@ -765,28 +765,37 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
         )
 
         # Update language and voice if changed in settings
-        if self.current_stt_language != self.settings.current_stt_language:
-            self.current_stt_language = self.settings.current_stt_language
-            # TODO: Gemini Live API STT language configuration method in google-generativeai SDK is not obvious.
-            # It might be auto-detected or require a different config object not directly in LiveConnectConfig.
-            logger.info(f"GeminiRealtimeHandler: STT language setting: {self.current_stt_language or 'auto-detect (Gemini default)'}. Note: Explicit STT language setting might not be supported by current Gemini Live SDK integration.")
+        # Language Code Formatting
+        formatted_language_code = self.settings.current_stt_language # Use a temporary var from settings
+        if formatted_language_code and len(formatted_language_code) == 2:
+            formatted_language_code = f"{formatted_language_code}-{formatted_language_code.upper()}"
+            logger.info(f"GeminiRealtimeHandler: Formatted 2-letter language code to: {formatted_language_code}")
+        
+        # Update internal state and log if changed
+        if self.current_stt_language_code != formatted_language_code:
+            self.current_stt_language_code = formatted_language_code
+            logger.info(f"GeminiRealtimeHandler: STT language code set to: {self.current_stt_language_code or 'auto-detect (Gemini default)'}")
+        elif not self.current_stt_language_code: # Log even if it was already None/empty
+             logger.info(f"GeminiRealtimeHandler: STT language code is not set (auto-detect by Gemini).")
+
 
         if self.current_gemini_voice != self.settings.current_gemini_voice:
             self.current_gemini_voice = self.settings.current_gemini_voice
             logger.info(f"GeminiRealtimeHandler: Output voice updated to: {self.current_gemini_voice}")
 
-        live_connect_config = LiveConnectConfig(
-            response_modalities=["AUDIO"],  # Request only audio modality, matching reference
-            speech_config=GenaiSpeechConfig( # Using renamed import
-                voice_config=GenaiVoiceConfig( # Using renamed import
-                    prebuilt_voice_config=PrebuiltVoiceConfig(
-                        voice_name=self.current_gemini_voice,
-                    )
+        speech_config_params: Dict[str, Any] = {
+            "voice_config": GenaiVoiceConfig(
+                prebuilt_voice_config=PrebuiltVoiceConfig(
+                    voice_name=self.current_gemini_voice,
                 )
-            ),
-            # TODO: Add stt_config here if a way to specify language is found for google-generativeai
-            # e.g., stt_config=GenaiSpeechConfig(recognition_config=RecognitionConfig(language_codes=[self.current_stt_language]))
-            # This requires knowing the exact structure and objects from google-generativeai.
+            )
+        }
+        if self.current_stt_language_code: # Only add language_code if it's set
+            speech_config_params["language_code"] = self.current_stt_language_code
+
+        live_connect_config = LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            speech_config=GenaiSpeechConfig(**speech_config_params),
         )
 
         if self.settings.system_message:

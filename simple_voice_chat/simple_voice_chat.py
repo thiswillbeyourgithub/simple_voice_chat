@@ -790,7 +790,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                 logger.info(f"GeminiRealtimeHandler: Connection established with model {selected_model}, voice {self.current_gemini_voice or 'default'}.")
                 await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "stt_processing", "message": "Listening..."}))
 
-                async for result in self.session.start_stream(stream=self._audio_input_stream(), mime_type="audio/pcm;rate=16000"):
+                async for result in self.session.start_stream(stream=self._audio_input_stream(), mime_type="audio/pcm"):
                     async with self._processing_lock: # Ensure sequential processing of results for a turn
                         logger.debug(f"GeminiRealtime Event: {result}")
 

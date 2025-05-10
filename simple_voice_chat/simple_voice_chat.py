@@ -1453,8 +1453,27 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
             logger.error(f"OpenAIRealtimeHandler: Authentication Error: {e}. Check your --openai-api-key.")
             await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": "OpenAI Auth Error. Check API Key."}))
         except Exception as e:
-            logger.error(f"OpenAIRealtimeHandler: Connection failed or error during session: {e}", exc_info=True)
-            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Connection Error: {str(e)}"}))
+            error_message_for_log = "Unknown error"
+            error_message_for_ui = "Unknown error"
+            try:
+                error_message_for_log = str(e)
+                # Try to get a more specific message for UI if available from e.message
+                ui_msg_candidate = getattr(e, 'message', None)
+                if isinstance(ui_msg_candidate, str) and ui_msg_candidate:
+                    error_message_for_ui = ui_msg_candidate
+                else:
+                    error_message_for_ui = error_message_for_log # Fallback to the general str(e)
+            except Exception as conversion_exception:
+                logger.warning(
+                    f"Could not convert original exception to string or extract message. "
+                    f"Original exception type: {type(e).__name__}. "
+                    f"Conversion/extraction exception: {type(conversion_exception).__name__} - {str(conversion_exception)}"
+                )
+                error_message_for_log = f"Unstringifiable error of type {type(e).__name__}"
+                error_message_for_ui = f"A server error of type {type(e).__name__} occurred."
+
+            logger.error(f"OpenAIRealtimeHandler: Connection failed or error during session: {error_message_for_log}", exc_info=True)
+            await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Connection Error: {error_message_for_ui}"}))
         finally:
             logger.info("OpenAIRealtimeHandler: start_up processing loop finished.")
             if self.connection:

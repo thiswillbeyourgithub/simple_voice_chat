@@ -42,7 +42,7 @@ This project aims to provide a versatile and cost-effective voice chat interface
 
 ## Known Issues
 
-*   ⚠️ **Cost Calculation:** The cost calculation for the OpenAI real-time API and Gemini API is currently not functional. Documentation for these features might be out of date in other sections.
+*   ⚠️ **Cost Calculation:** The cost calculation for the OpenAI real-time API is currently not functional. Documentation for this feature might be out of date in other sections.
 
 ## Installation
 

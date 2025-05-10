@@ -61,7 +61,13 @@ GEMINI_LIVE_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus
 # --- End Application Constants ---
 
 # Import env var for Pydantic default
-from .env import OPENAI_REALTIME_MODEL_ENV, GEMINI_API_KEY_ENV, GEMINI_MODEL_ENV, GEMINI_VOICE_ENV # Add Gemini env vars
+from .env import (
+    OPENAI_REALTIME_MODEL_ENV, 
+    GEMINI_API_KEY_ENV, 
+    GEMINI_MODEL_ENV, 
+    GEMINI_VOICE_ENV, 
+    GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV # Add Gemini threshold env var
+)
 
 class AppSettings(BaseModel):
     """
@@ -93,6 +99,7 @@ class AppSettings(BaseModel):
     gemini_model_arg: str = GEMINI_MODEL_ENV # Initial preference from args/env
     gemini_voice_arg: Optional[str] = GEMINI_VOICE_ENV # Initial preference for Gemini voice
     current_gemini_voice: Optional[str] = None # Actual current voice for Gemini backend
+    gemini_context_window_compression_threshold: int = 16000 # Populated from CLI/env, actual value used
 
 
     # --- LLM Config (Classic Backend) ---

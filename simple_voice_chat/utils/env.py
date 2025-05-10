@@ -67,7 +67,9 @@ OPENAI_REALTIME_VOICE_ENV: str = os.getenv("OPENAI_REALTIME_VOICE", "alloy") # D
 GEMINI_API_KEY_ENV: Optional[str] = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL_ENV: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp") # Default to the known model
 GEMINI_VOICE_ENV: str = os.getenv("GEMINI_VOICE", "Puck") # Default voice for Gemini backend
-
+GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV: str = os.getenv(
+    "GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD", "16000"
+) # Default threshold for sliding window
 
 # --- Application Configuration ---
 APP_PORT_ENV: str = os.getenv("APP_PORT", "7860")  # Keep as string for argparse default
@@ -111,6 +113,7 @@ __all__ = [
     "GEMINI_API_KEY_ENV",
     "GEMINI_MODEL_ENV",
     "GEMINI_VOICE_ENV",
+    "GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV",
     # App
     "APP_PORT_ENV",
     # Misc

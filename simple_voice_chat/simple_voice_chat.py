@@ -99,12 +99,13 @@ from .utils.env import (
     TTS_ACRONYM_PRESERVE_LIST_ENV,
     APP_PORT_ENV,
     SYSTEM_MESSAGE_ENV,
-    OPENAI_API_KEY_ENV, 
-    OPENAI_REALTIME_MODEL_ENV, 
+    OPENAI_API_KEY_ENV,
+    OPENAI_REALTIME_MODEL_ENV,
     OPENAI_REALTIME_VOICE_ENV,
     GEMINI_API_KEY_ENV,       # Add Gemini env var
     GEMINI_MODEL_ENV,         # Add Gemini env var
     GEMINI_VOICE_ENV,         # Add Gemini env var
+    GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV, # Add Gemini threshold env var
 )
 
 # Import other utils functions
@@ -802,10 +803,10 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             "response_modalities": ["AUDIO"],
             "speech_config": GenaiSpeechConfig(**speech_config_params),
             "context_window_compression": ContextWindowCompressionConfig(
-                sliding_window=SlidingWindow(16000) # Enable sliding window compression
+                sliding_window=SlidingWindow(self.settings.gemini_context_window_compression_threshold) # Enable sliding window compression
             )
         }
-        logger.info("GeminiRealtimeHandler: Context window compression enabled with 16000 token threshold.")
+        logger.info(f"GeminiRealtimeHandler: Context window compression enabled with {self.settings.gemini_context_window_compression_threshold} token threshold.")
 
         if self.settings.system_message:
             logger.info(f"GeminiRealtimeHandler: Preparing system message for LiveConnectConfig: \"{self.settings.system_message[:100]}...\"")
@@ -2182,6 +2183,14 @@ def monitor_heartbeat_thread():
     help="API key for Google Gemini services (REQUIRED if --backend=gemini). (Env: GEMINI_API_KEY)",
 )
 @click.option(
+    "--gemini-compression-threshold",
+    type=click.INT,
+    envvar="GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD",
+    default=int(GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD_ENV),
+    show_default=True,
+    help="Context window compression threshold for Gemini backend (if --backend=gemini). (Env: GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD)",
+)
+@click.option(
     "--llm-host",
     type=str,
     envvar="LLM_HOST",
@@ -2342,10 +2351,11 @@ def main(
     backend: str, 
     openai_realtime_model: str,
     openai_realtime_voice: str, # New CLI option for OpenAI backend voice
-    openai_api_key: Optional[str], 
+    openai_api_key: Optional[str],
     gemini_model: str,             # Add Gemini arg
     gemini_voice: str,             # Add Gemini arg
     gemini_api_key: Optional[str], # Add Gemini arg
+    gemini_compression_threshold: int, # Add Gemini compression threshold arg
     llm_host: Optional[str],
     llm_port: Optional[str],
     llm_model: str,
@@ -2379,6 +2389,7 @@ def main(
     settings.gemini_model_arg = gemini_model       # Store Gemini arg
     settings.gemini_voice_arg = gemini_voice       # Store Gemini arg
     settings.gemini_api_key = gemini_api_key       # Store Gemini arg
+    settings.gemini_context_window_compression_threshold = gemini_compression_threshold # Store Gemini threshold
 
     settings.preferred_port = port
     settings.host = host

@@ -54,7 +54,7 @@ setuptools.setup(
         "uvicorn[standard]>=0.34.2",
         "litellm>=1.67.2",
         "loguru>=0.7.3",
-        "platformdirs>=4.3.7"
+        "platformdirs>=4.3.7",
         "google-genai >= 1.14.0",
     ],
 

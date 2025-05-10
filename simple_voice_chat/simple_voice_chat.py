@@ -889,7 +889,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             self._reset_turn_usage_state()
 
 
-        except genai.types.StopCandidateException as e: # Specific exception for Gemini
+        except StopCandidateException as e: # Specific exception for Gemini
              logger.error(f"GeminiRealtimeHandler: StopCandidateException: {e}", exc_info=True)
              await self.output_queue.put(AdditionalOutputs({"type": "status_update", "status": "error", "message": f"Gemini Content Filtered: {e}"}))
         except Exception as e:

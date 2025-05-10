@@ -767,7 +767,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             logger.info(f"GeminiRealtimeHandler: Output voice updated to: {self.current_gemini_voice}")
 
         live_connect_config = LiveConnectConfig(
-            response_modalities=["AUDIO", "TEXT"],  # Request both audio and text responses
+            response_modalities=["AUDIO"],  # Request only audio modality, matching reference
             speech_config=GenaiSpeechConfig( # Using renamed import
                 voice_config=GenaiVoiceConfig( # Using renamed import
                     prebuilt_voice_config=PrebuiltVoiceConfig(

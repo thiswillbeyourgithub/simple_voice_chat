@@ -766,8 +766,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             return
 
         self.client = genai.Client(
-            api_key=self.settings.gemini_api_key,
-            http_options={"api_version": "v1alpha"}, # Alpha version is crucial
+            api_key=self.settings.gemini_api_key
         )
 
         # Update language and voice if changed in settings

@@ -902,7 +902,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
 
 
     async def receive(self, frame: tuple[int, np.ndarray]) -> None:
-        if not self.session or not self.session.is_active:
+        if not self.session:
             return
 
         _, array = frame # Input rate is self.input_sample_rate (16kHz)

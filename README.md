@@ -4,7 +4,7 @@ This project provides a flexible voice chat interface that connects to various S
 
 ![Screenshot](screenshot.png)
 
-**Acknowledgement:** This project heavily relies on the fantastic [fastrtc](https://github.com/gradio-app/fastrtc) library, which simplifies real-time audio streaming over WebRTC, making this application possible.
+**Acknowledgement:** This project heavily relies on the fantastic [fastrtc](https://github.com/gradio-app/fastrtc) library, which simplifies real-time audio streaming over WebRTC and provided crucial examples for setting up the various supported backends, making this application possible.
 
 ## Motivation
 
@@ -12,13 +12,14 @@ This project aims to provide a versatile and cost-effective voice chat interface
 
 ## Features
 
-*   🚀 **Multiple Backends:**
-    *   **Classic Backend:** Offers a modular approach, allowing you to connect separate services for:
-        *   🗣️ **STT:** Supports OpenAI Whisper API or self-hosted engines like [Speaches](https://github.com/speaches-ai/speaches) (Faster Whisper).
-        *   🧠 **LLM:** Integrates with [LiteLLM](https://github.com/BerriAI/litellm), enabling connections to OpenAI, Anthropic, Google, Mistral, Cohere, Azure, local models (via LiteLLM proxy, vLLM, Ollama), and more.
-        *   🔊 **TTS:** Supports OpenAI TTS API or alternatives like [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI).
-    *   **OpenAI Backend:** Utilizes OpenAI's real-time voice API for a streamlined, all-in-one voice interaction experience.
-    *   🔜 **Gemini Live API (Planned):** Future support for Google's Gemini Live API is planned, offering another advanced real-time voice option.
+*   🚀 **Multiple Backends:** The application supports three primary backend types for voice processing:
+    *   **Classic Backend:** This is the most flexible option, offering a modular approach where you connect separate services for:
+        *   🗣️ **STT (Speech-to-Text):** Supports API-based services like OpenAI Whisper or self-hosted engines such as [Speaches](https://github.com/speaches-ai/speaches) (which utilizes Faster Whisper).
+        *   🧠 **LLM (Large Language Model):** Integrates with [LiteLLM](https://github.com/BerriAI/litellm), providing access to a vast array of models including OpenAI, Anthropic, Google, Mistral, Cohere, Azure, and local models run via services like [Ollama](https://ollama.com/), LiteLLM proxy, vLLM, and more.
+        *   🔊 **TTS (Text-to-Speech):** Supports API-based services like OpenAI TTS or alternatives such as [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) (which can use [KokoroTTS](https://github.com/kokorotts/)).
+        *   *This backend allows for a fully local setup if desired, using local STT, LLM (e.g., via Ollama), and TTS engines.*
+    *   **OpenAI Backend:** Utilizes OpenAI's real-time voice API for a streamlined, all-in-one voice interaction experience, requiring an OpenAI API key.
+    *   **Gemini Backend:** Leverages Google's Gemini Live Connect API for real-time voice interactions, requiring a Google Gemini API key.
 *   ⚙️ **Highly Configurable:** Adjust backend type, STT/LLM/TTS hosts, ports, models, API keys, STT confidence thresholds (classic backend), TTS voice/speed (classic backend), system messages, and more via CLI arguments or `.env` file.
 *   🌐 **Web Interface:** Simple and responsive UI built with HTML, CSS, and JavaScript.
 *   📊 **Cost Tracking:**

@@ -956,6 +956,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
 
                             if final_usage_metadata_for_turn:
                                 logger.info(f"GeminiRealtime: Using usage_metadata for cost calculation (Source: {usage_metadata_source_log}). Details: {final_usage_metadata_for_turn}")
+                                logger.debug(f"[BACKEND_COST_DEBUG_GEMINI] final_usage_metadata_for_turn: {final_usage_metadata_for_turn}")
+
 
                                 prompt_details = getattr(final_usage_metadata_for_turn, 'prompt_tokens_details', [])
                                 if not prompt_details: 
@@ -1015,6 +1017,13 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             
                             total_gemini_cost = prompt_audio_token_cost + prompt_text_token_cost + response_audio_token_cost # + response_text_token_cost
                             
+                            logger.debug(f"[BACKEND_COST_DEBUG_GEMINI] Extracted API Tokens: "
+                                         f"Prompt Audio: {api_prompt_audio_tokens}, Prompt Text: {api_prompt_text_tokens}, "
+                                         f"Response Audio: {api_response_audio_tokens}")
+                            logger.debug(f"[BACKEND_COST_DEBUG_GEMINI] Calculated Costs: "
+                                         f"Prompt Audio: ${prompt_audio_token_cost:.8f}, Prompt Text: ${prompt_text_token_cost:.8f}, "
+                                         f"Response Audio: ${response_audio_token_cost:.8f}, Total: ${total_gemini_cost:.8f}")
+
                             logger.debug( # Added debug print for turn costs
                                 f"GeminiRealtime Turn Token Costs DEBUG: "
                                 f"Prompt Audio: ${prompt_audio_token_cost:.6f} ({api_prompt_audio_tokens} tokens), "
@@ -1053,6 +1062,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 "output_chars": self._current_output_chars,
                                 "note": "Costs are based on API-provided token counts per modality from usage_metadata."
                             }
+                            logger.debug(f"[BACKEND_COST_DEBUG_GEMINI] cost_data to be sent: {json.dumps(cost_data)}")
                             await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
                             
                             assistant_metadata = ChatMessageMetadata(
@@ -1307,6 +1317,8 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             self.current_output_tokens = raw_output_tokens if raw_output_tokens is not None else 0
                             
                             logger.info(f"OpenAIRealtimeHandler: Final tokens from response.done: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
+                            logger.debug(f"[BACKEND_COST_DEBUG_OPENAI] Raw usage_data from event: {usage_data}")
+                            logger.debug(f"[BACKEND_COST_DEBUG_OPENAI] Parsed tokens: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
 
                             # Append this final usage to raw_usage_events_for_turn for completeness
                             raw_final_usage = dict(usage_data) if hasattr(usage_data, 'dict') else vars(usage_data)
@@ -1353,6 +1365,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                                 f"OpenAIRealtime Token Costs: Input Tokens: {self.current_input_tokens}, Output Tokens: {self.current_output_tokens}. "
                                 f"Input Cost: ${input_cost:.6f}, Output Cost: ${output_cost:.6f}, Total: ${total_cost:.6f}"
                             )
+                            logger.debug(f"[BACKEND_COST_DEBUG_OPENAI] Calculated costs: Input: ${input_cost:.8f}, Output: ${output_cost:.8f}, Total: ${total_cost:.8f}")
                         else:
                             logger.error(f"OpenAIRealtimeHandler: Cost calculation skipped due to missing pricing for model '{model_name_for_pricing}'.")
 
@@ -1367,6 +1380,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2),
                             "note": "Costs are token-based. Audio duration is informational."
                         }
+                        logger.debug(f"[BACKEND_COST_DEBUG_OPENAI] cost_data to be sent: {json.dumps(cost_data)}")
                         await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
 
                         assistant_metadata = ChatMessageMetadata(

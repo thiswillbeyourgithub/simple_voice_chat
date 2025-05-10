@@ -1689,6 +1689,8 @@
 
         function updateCostDisplay(costData) {
             console.log("Received cost data for display:", costData);
+            console.debug("[FRONTEND_COST_DEBUG] Received costData in updateCostDisplay:", JSON.stringify(costData));
+
 
             const inputCostLabel = document.querySelector('#cost-details .cost-item:nth-child(1) .cost-label');
             const outputCostLabel = document.querySelector('#cost-details .cost-item:nth-child(2) .cost-label');
@@ -1762,6 +1764,9 @@
                     cumulativeTtsCost += currentTransactionTtsCost;
                     cumulativeTotalCost += currentTransactionTotalCost; // Accumulate the total from this transaction
 
+                    console.debug(`[FRONTEND_COST_DEBUG] Transactional costs - Input: ${currentTransactionInputCost}, Output: ${currentTransactionOutputCost}, TTS: ${currentTransactionTtsCost}, Total: ${currentTransactionTotalCost}`);
+                    console.debug(`[FRONTEND_COST_DEBUG] Cumulative costs BEFORE display update - Input: ${cumulativeInputCost}, Output: ${cumulativeOutputCost}, TTS: ${cumulativeTtsCost}, Grand Total: ${cumulativeTotalCost}`);
+
                     // Displaying based on backend - showing TRANSACTIONAL details and CUMULATIVE monetary costs
                     if (currentBackend === 'gemini') {
                         const promptAudioTokens = costData.prompt_audio_tokens !== undefined ? `${costData.prompt_audio_tokens} aud` : '';
@@ -1790,7 +1795,7 @@
                     document.getElementById('total-cost').textContent = '$' + formatCostDisplay(cumulativeTotalCost);
                 }
                 console.log(`Updated cumulative costs - Current Tx Total: $${currentTransactionTotalCost.toFixed(6)} | New Grand Total: $${cumulativeTotalCost.toFixed(6)}`);
-                console.debug(`Cumulative details after update: Input: $${cumulativeInputCost.toFixed(6)}, Output: $${cumulativeOutputCost.toFixed(6)}, TTS: $${cumulativeTtsCost.toFixed(6)}`);
+                console.debug(`[FRONTEND_COST_DEBUG] Cumulative details AFTER display update - Input: $${cumulativeInputCost.toFixed(6)}, Output: $${cumulativeOutputCost.toFixed(6)}, TTS: $${cumulativeTtsCost.toFixed(6)}, Grand Total: $${cumulativeTotalCost.toFixed(6)}`);
 
             } catch (error) {
                 console.error("Unexpected error updating cost display:", error, costData);

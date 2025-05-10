@@ -926,6 +926,7 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                         
                         # Process speech events (like end of utterance)
                         speech_event_details = getattr(live_event_content, 'speech_processing_event', None)
+                        logger.debug(f"GeminiRealtime: Inspected speech_event_details. Value: {speech_event_details}. Event type if exists: {speech_event_details.event_type if speech_event_details else 'N/A'}")
                         if speech_event_details and speech_event_details.event_type == "END_OF_SINGLE_UTTERANCE":
                             logger.info("GeminiRealtime: END_OF_SINGLE_UTTERANCE received.")
                             

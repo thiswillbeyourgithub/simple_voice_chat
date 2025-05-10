@@ -1146,51 +1146,82 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             )
                         )
                     elif event.type == "response.audio_transcript.done":
+                        logger.info(f"OpenAIRealtimeHandler: Assistant transcript received: '{event.transcript[:100]}...'")
+                        # The final processing, cost calculation, and message creation will be handled by "response.done".
+                        # We store the transcript if needed, or rely on "response.done" to contain it.
+                        # For now, this event primarily serves as a log point.
+
+                    elif event.type == "response.done":
+                        logger.info(f"OpenAIRealtimeHandler: Response done event received.")
+                        assistant_text = ""
+                        if hasattr(event, 'response') and event.response and \
+                           hasattr(event.response, 'output') and event.response.output and \
+                           len(event.response.output) > 0 and \
+                           hasattr(event.response.output[0], 'content') and event.response.output[0].content and \
+                           len(event.response.output[0].content) > 0 and \
+                           hasattr(event.response.output[0].content[0], 'text'):
+                            assistant_text = event.response.output[0].content[0].text
+                            logger.info(f"OpenAIRealtimeHandler: Assistant text from response.done: '{assistant_text[:100]}...'")
+                        else:
+                            logger.error("OpenAIRealtimeHandler: Could not extract assistant text from response.done event.")
+                            # Potentially fallback to a stored transcript if we decide to implement that,
+                            # or yield an error message. For now, proceed with empty text if not found.
+
+                        # Extract usage from event.response.usage
+                        if hasattr(event, 'response') and event.response and hasattr(event.response, 'usage'):
+                            usage_data = event.response.usage
+                            self.current_input_tokens = getattr(usage_data, 'input_tokens', 0)
+                            self.current_output_tokens = getattr(usage_data, 'output_tokens', 0)
+                            logger.info(f"OpenAIRealtimeHandler: Final tokens from response.done: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
+
+                            # Append this final usage to raw_usage_events_for_turn for completeness
+                            raw_final_usage = dict(usage_data) if hasattr(usage_data, 'dict') else vars(usage_data)
+                            self.raw_usage_events_for_turn.append({"type": event.type, "usage": raw_final_usage})
+                        else:
+                            logger.error("OpenAIRealtimeHandler: Could not extract usage data from response.done event. Token counts will be zero.")
+                            self.current_input_tokens = 0
+                            self.current_output_tokens = 0
+                        
                         # --- Cost Calculation & Metadata (OpenAI Backend - Token Based) ---
                         input_cost = 0.0
                         output_cost = 0.0
                         total_cost = 0.0
-                        # Normalize model name to lowercase for pricing lookup, as pricing keys are lowercase.
                         model_name_for_pricing = self.settings.openai_realtime_model_arg.lower()
-                        resolved_model_prices = None 
+                        resolved_model_prices = None
                         
                         try:
-                            # First, try a direct match with the (now lowercased) model name
                             resolved_model_prices = OPENAI_REALTIME_PRICING[model_name_for_pricing]
                             logger.info(f"OpenAIRealtimeHandler: Found direct pricing for model '{model_name_for_pricing}'.")
                         except KeyError:
-                            logger.info(f"OpenAIRealtimeHandler: No direct pricing found for model '{model_name_for_pricing}'. Attempting to find pricing by base model name...")
-                            # If direct match fails, try to find a base model name match
+                            logger.info(f"OpenAIRealtimeHandler: No direct pricing for '{model_name_for_pricing}'. Trying base model match...")
                             found_base_match = False
-                            for base_model_key in OPENAI_REALTIME_PRICING.keys(): # Keys are already lowercase
+                            for base_model_key in OPENAI_REALTIME_PRICING.keys():
                                 if model_name_for_pricing.startswith(base_model_key):
-                                    resolved_model_prices = OPENAI_REALTIME_PRICING[base_model_key] 
-                                    logger.info(f"OpenAIRealtimeHandler: Found pricing for '{self.settings.openai_realtime_model_arg}' (matched as '{model_name_for_pricing}') using base model key '{base_model_key}'.")
+                                    resolved_model_prices = OPENAI_REALTIME_PRICING[base_model_key]
+                                    logger.info(f"OpenAIRealtimeHandler: Found pricing for '{self.settings.openai_realtime_model_arg}' using base model key '{base_model_key}'.")
                                     found_base_match = True
                                     break
                             if not found_base_match:
                                 logger.critical(
-                                    f"OpenAIRealtimeHandler: Could not find any pricing information (direct or base model) for model '{model_name_for_pricing}' (derived from '{self.settings.openai_realtime_model_arg}') in OPENAI_REALTIME_PRICING. Cannot calculate cost."
+                                    f"OpenAIRealtimeHandler: No pricing for model '{model_name_for_pricing}' in OPENAI_REALTIME_PRICING."
                                 )
-                                raise KeyError(f"Pricing information not found for model '{model_name_for_pricing}' or its base in OPENAI_REALTIME_PRICING.")
+                                # Set costs to 0 and proceed if pricing info is missing, but log critical error.
+                                resolved_model_prices = None # Ensure it's None so costs remain 0
                         
-                        # At this point, resolved_model_prices must be populated, or an error was raised.
-                        # Direct access for "input" and "output" keys. This will raise KeyError if missing.
-                        price_input_per_mil = resolved_model_prices["input"]
-                        price_output_per_mil = resolved_model_prices["output"]
-                        # price_cached_input_per_mil = resolved_model_prices["cached_input"] # Access directly if used
+                        if resolved_model_prices:
+                            price_input_per_mil = resolved_model_prices.get("input", 0.0)
+                            price_output_per_mil = resolved_model_prices.get("output", 0.0)
 
-                        assert price_input_per_mil, "price_cached_input_per_mil shoult never be 0"
-                        assert price_output_per_mil, "price_cached_output_per_mil shoult never be 0"
+                            input_cost = (self.current_input_tokens / 1_000_000) * price_input_per_mil
+                            output_cost = (self.current_output_tokens / 1_000_000) * price_output_per_mil
+                            total_cost = input_cost + output_cost
+                            logger.info(
+                                f"OpenAIRealtime Token Costs: Input Tokens: {self.current_input_tokens}, Output Tokens: {self.current_output_tokens}. "
+                                f"Input Cost: ${input_cost:.6f}, Output Cost: ${output_cost:.6f}, Total: ${total_cost:.6f}"
+                            )
+                        else:
+                            logger.error(f"OpenAIRealtimeHandler: Cost calculation skipped due to missing pricing for model '{model_name_for_pricing}'.")
 
-                        input_cost = (self.current_input_tokens / 1_000_000) * price_input_per_mil
-                        output_cost = (self.current_output_tokens / 1_000_000) * price_output_per_mil
-                        total_cost = input_cost + output_cost
-                        logger.info(
-                            f"OpenAIRealtime Token Costs: Input Tokens: {self.current_input_tokens}, Output Tokens: {self.current_output_tokens}. "
-                            f"Input Cost: ${input_cost:.6f}, Output Cost: ${output_cost:.6f}, Total: ${total_cost:.6f}"
-                        )
-                        # No 'else' block needed here; if resolved_model_prices wasn't found, an error was already raised.
 
                         cost_data = {
                             "input_cost": input_cost,
@@ -1199,11 +1230,10 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                             "input_tokens": self.current_input_tokens,
                             "output_tokens": self.current_output_tokens,
                             "model": self.settings.openai_realtime_model_arg,
-                            "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2), # Informational
+                            "output_audio_duration_seconds": round(self.current_output_audio_duration_seconds, 2),
                             "note": "Costs are token-based. Audio duration is informational."
                         }
                         await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
-                        # --- End Cost Calculation ---
 
                         assistant_metadata = ChatMessageMetadata(
                             timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), 
@@ -1215,7 +1245,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                         )
                         assistant_message = ChatMessage(
                             role="assistant", 
-                            content=event.transcript, 
+                            content=assistant_text, 
                             metadata=assistant_metadata
                         )
                         await self.output_queue.put(
@@ -1230,8 +1260,7 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
                                 }
                             )
                         )
-                        # Removed problematic final_chatbot_state with empty history
-                        # The UI should append messages as they come. 'idle' signals end of turn.
+                        self._reset_turn_usage_state() # Reset for the next full turn interaction after speech_started
 
                     elif event.type == "response.audio.delta":
                         audio_data_bytes = base64.b64decode(event.delta)
@@ -1255,34 +1284,19 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
 
                         # Ensure event.usage exists. If not, direct access below will raise AttributeError.
                         if not hasattr(event, 'usage') or event.usage is None:
-                            logger.critical(f"OpenAIRealtime Usage Event ({event.type}) is missing the 'usage' object. Token parsing will fail.")
-                            raise AttributeError(f"Event {event.type} is missing the 'usage' object.")
-
-                        # Directly access input_tokens and output_tokens.
-                        # This will raise AttributeError if they are missing from event.usage.
-                        # These are expected to be integers (can be 0).
-                        logger.debug(f"OpenAIRealtimeHandler: Attempting direct attribute access on event.usage for tokens. event.usage type: {type(event.usage)}")
-                        current_event_input_tokens = event.usage.input_tokens
-                        current_event_output_tokens = event.usage.output_tokens
-                        logger.debug(f"OpenAIRealtimeHandler: Accessed tokens from event.usage: input_tokens={current_event_input_tokens}, output_tokens={current_event_output_tokens}")
-
-                        # If tokens can be None (e.g. Optional[int] in SDK) and this is an invalid state for accumulation, raise error.
-                        if current_event_input_tokens is None:
-                             logger.critical(f"OpenAIRealtime Usage Event ({event.type}): 'input_tokens' is None. This is unexpected for token accumulation.")
-                             raise ValueError(f"Event {event.type}.usage.input_tokens is None and cannot be accumulated.")
-                        if current_event_output_tokens is None:
-                             logger.critical(f"OpenAIRealtime Usage Event ({event.type}): 'output_tokens' is None. This is unexpected for token accumulation.")
-                             raise ValueError(f"Event {event.type}.usage.output_tokens is None and cannot be accumulated.")
+                            logger.warning(f"OpenAIRealtime Usage Event ({event.type}) is missing the 'usage' object. Raw logging might be incomplete.")
+                            # Do not raise, just log and potentially skip adding to raw_usage_events_for_turn
+                            raw_usage_data = {"error": "Usage object missing or None"}
+                        else:
+                            # Log the raw usage data for debugging. vars() is a good way to see attributes.
+                            logger.info(f"OpenAIRealtime Usage Event: {event.type} - Raw Usage Data: {vars(event.usage)}")
+                            # Store the raw usage object (or its dict representation)
+                            raw_usage_data = dict(event.usage) if hasattr(event.usage, 'dict') else vars(event.usage)
                         
-                        self.current_input_tokens += current_event_input_tokens
-                        self.current_output_tokens += current_event_output_tokens
-                        
-                        logger.info(f"OpenAIRealtime Usage Parsed: Input Tokens Added: {current_event_input_tokens}, Output Tokens Added: {current_event_output_tokens}. Cumulative: Input={self.current_input_tokens}, Output={self.current_output_tokens}")
-                        
-                        # Store the raw usage object (or its dict representation)
-                        # Ensure event.usage is not None before trying to convert to dict
-                        raw_usage_data = dict(event.usage) if hasattr(event.usage, 'dict') else vars(event.usage)
                         self.raw_usage_events_for_turn.append({"type": event.type, "usage": raw_usage_data})
+                        logger.debug(f"OpenAIRealtimeHandler: Raw usage event '{event.type}' logged. Token accumulation is handled by 'response.done'.")
+                        # Token accumulation (self.current_input_tokens += ...) is removed from here.
+                        # Final token counts will be taken from the "response.done" event.
 
                     elif event.type == "error":
                         error_code = "N/A"

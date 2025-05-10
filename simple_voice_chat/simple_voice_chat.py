@@ -713,6 +713,8 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
         self._current_output_chars: int = 0 # Text that was synthesized
         self._current_input_transcript_parts: List[str] = []
         self._current_output_text_parts: List[str] = []
+        self._current_input_audio_duration_this_turn: float = 0.0 # Added for token calculation
+        self._current_output_audio_duration_this_turn: float = 0.0 # Added for token calculation
         self._processing_lock = asyncio.Lock() # To protect shared state during event processing
 
     def copy(self):
@@ -723,14 +725,21 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
         self._current_output_chars = 0
         self._current_input_transcript_parts = []
         self._current_output_text_parts = []
+        self._current_input_audio_duration_this_turn = 0.0 # Reset
+        self._current_output_audio_duration_this_turn = 0.0 # Reset
         logger.debug("GeminiRealtimeHandler: Turn usage state reset.")
 
     async def _audio_input_stream(self) -> AsyncGenerator[bytes, None]:
-        """Yields audio chunks from the input queue for Gemini."""
+        """Yields audio chunks from the input queue for Gemini and accumulates input audio duration."""
         while True:
             try:
                 # Wait for audio data, but with a timeout to allow shutdown checks
                 audio_chunk = await asyncio.wait_for(self._input_audio_queue.get(), timeout=0.1)
+                
+                # Accumulate input audio duration (bytes_per_sample = 2 for int16)
+                duration_chunk_seconds = len(audio_chunk) / (GEMINI_REALTIME_INPUT_SAMPLE_RATE * 2)
+                self._current_input_audio_duration_this_turn += duration_chunk_seconds
+                
                 yield audio_chunk
                 self._input_audio_queue.task_done()
             except asyncio.TimeoutError:
@@ -846,6 +855,12 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 inline_data_obj = getattr(part, 'inline_data', None)
                                 if inline_data_obj and inline_data_obj.data and 'audio' in inline_data_obj.mime_type:
                                     logger.debug(f"GeminiRealtime: Found audio in model_turn.parts.inline_data ({len(inline_data_obj.data)} bytes, mime_type: {inline_data_obj.mime_type})")
+                                    
+                                    # Accumulate output audio duration
+                                    output_audio_bytes_chunk = len(inline_data_obj.data)
+                                    duration_chunk_output_seconds = output_audio_bytes_chunk / (GEMINI_REALTIME_OUTPUT_SAMPLE_RATE * 2)
+                                    self._current_output_audio_duration_this_turn += duration_chunk_output_seconds
+                                    
                                     audio_data_np = np.frombuffer(inline_data_obj.data, dtype=np.int16)
                                     if audio_data_np.ndim == 1:
                                         audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
@@ -855,6 +870,12 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                         audio_response_obj = getattr(live_event_content, 'audio_response', None)
                         if audio_response_obj and audio_response_obj.data:
                             logger.debug(f"GeminiRealtime: Found audio in audio_response ({len(audio_response_obj.data)} bytes)")
+
+                            # Accumulate output audio duration
+                            output_audio_bytes_chunk = len(audio_response_obj.data)
+                            duration_chunk_output_seconds = output_audio_bytes_chunk / (GEMINI_REALTIME_OUTPUT_SAMPLE_RATE * 2)
+                            self._current_output_audio_duration_this_turn += duration_chunk_output_seconds
+
                             audio_data_np = np.frombuffer(audio_response_obj.data, dtype=np.int16)
                             if audio_data_np.ndim == 1:
                                 audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
@@ -871,25 +892,48 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                             full_output_text = "".join(self._current_output_text_parts) # Assembled from model_turn parts
                             self._current_output_chars = len(full_output_text)
 
-                            # --- Cost Calculation / Assistant Message (existing logic) ---
-                            input_cost = 0.0
-                            output_tts_cost = 0.0
-                            if GEMINI_LIVE_PRICING:
-                                price_input_per_mil_chars = GEMINI_LIVE_PRICING.get("input", 0.0)
-                                price_output_per_mil_chars = GEMINI_LIVE_PRICING.get("output", 0.0)
-                                input_cost = (self._current_input_chars / 1_000_000) * price_input_per_mil_chars
-                                output_tts_cost = (self._current_output_chars / 1_000_000) * price_output_per_mil_chars
-                            total_cost = input_cost + output_tts_cost
+                            # --- Token Calculation (based on audio duration) ---
+                            # Audio is tokenized at 32 tokens per second.
+                            input_audio_tokens = round(self._current_input_audio_duration_this_turn * 32)
+                            output_audio_tokens = round(self._current_output_audio_duration_this_turn * 32)
                             logger.info(
-                                f"GeminiRealtime Char Counts: Input: {self._current_input_chars}, Output (TTS): {self._current_output_chars}. "
-                                f"Input Cost: ${input_cost:.6f}, Output (TTS) Cost: ${output_tts_cost:.6f}, Total: ${total_cost:.6f}"
+                                f"GeminiRealtime Audio Durations: Input: {self._current_input_audio_duration_this_turn:.3f}s, Output: {self._current_output_audio_duration_this_turn:.3f}s"
                             )
+                            logger.info(
+                                f"GeminiRealtime Audio Tokens: Input: {input_audio_tokens}, Output: {output_audio_tokens}"
+                            )
+
+                            # --- Cost Calculation (Token-based, using GEMINI_LIVE_PRICING from config) ---
+                            input_audio_token_cost = 0.0
+                            output_audio_token_cost = 0.0
+                            if GEMINI_LIVE_PRICING:
+                                price_input_audio_per_mil_tokens = GEMINI_LIVE_PRICING.get("input_audio_tokens", 0.0)
+                                price_output_audio_per_mil_tokens = GEMINI_LIVE_PRICING.get("output_audio_tokens", 0.0)
+                                input_audio_token_cost = (input_audio_tokens / 1_000_000) * price_input_audio_per_mil_tokens
+                                output_audio_token_cost = (output_audio_tokens / 1_000_000) * price_output_audio_per_mil_tokens
+                            
+                            total_audio_token_based_cost = input_audio_token_cost + output_audio_token_cost
+                            logger.info(
+                                f"GeminiRealtime Token Counts for Costing: Input Audio Tokens: {input_audio_tokens}, Output Audio Tokens: {output_audio_tokens}. "
+                                f"Input Audio Token Cost: ${input_audio_token_cost:.6f}, Output Audio Token Cost: ${output_audio_token_cost:.6f}, Total Audio Token-Based Cost: ${total_audio_token_based_cost:.6f}"
+                            )
+                            logger.info( # Keep char count logging for now, can be removed later if not needed.
+                                f"GeminiRealtime Char Counts (informational): Input: {self._current_input_chars}, Output (TTS): {self._current_output_chars}."
+                            )
+                            
                             cost_data = {
-                                "input_cost": input_cost, "output_cost": 0.0, "tts_cost": output_tts_cost,
-                                "total_cost": total_cost, "input_chars": self._current_input_chars,
-                                "output_chars": self._current_output_chars,
+                                "input_cost": input_audio_token_cost, # Cost for input (STT) audio tokens
+                                "output_cost": 0.0, # LLM text token cost not applicable for speech-to-speech
+                                "tts_cost": output_audio_token_cost, # Cost for output (TTS) audio tokens
+                                "total_cost": total_audio_token_based_cost,
                                 "model": self.settings.current_llm_model or self.settings.gemini_model_arg,
-                                "note": "Costs are character-based for STT (input) and TTS (output_chars)."
+                                "input_tokens": input_audio_tokens,
+                                "output_tokens": output_audio_tokens,
+                                "input_audio_duration_seconds": round(self._current_input_audio_duration_this_turn, 3),
+                                "output_audio_duration_seconds": round(self._current_output_audio_duration_this_turn, 3),
+                                "input_chars": self._current_input_chars, # Informational
+                                "output_chars": self._current_output_chars, # Informational
+                                "note": "Costs are based on audio tokens (input and output) as per GEMINI_LIVE_PRICING in config. Audio is tokenized at 32 tokens/second."
                             }
                             await self.output_queue.put(AdditionalOutputs({"type": "cost_update", "data": cost_data}))
                             
@@ -897,7 +941,15 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                 timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                                 llm_model=self.settings.current_llm_model or self.settings.gemini_model_arg,
                                 cost=cost_data,
-                                usage={"input_chars": self._current_input_chars, "output_chars": self._current_output_chars}
+                                usage={ 
+                                    "input_tokens": input_audio_tokens, 
+                                    "output_tokens": output_audio_tokens,
+                                    "input_audio_duration_seconds": round(self._current_input_audio_duration_this_turn, 3),
+                                    "output_audio_duration_seconds": round(self._current_output_audio_duration_this_turn, 3),
+                                    # Optional: Retain char counts for detailed usage if desired
+                                    "input_chars": self._current_input_chars, 
+                                    "output_chars": self._current_output_chars, 
+                                }
                             )
                             assistant_message = ChatMessage(role="assistant", content=full_output_text, metadata=assistant_metadata)
                             await self.output_queue.put(AdditionalOutputs({"type": "chatbot_update", "message": assistant_message.model_dump()}))

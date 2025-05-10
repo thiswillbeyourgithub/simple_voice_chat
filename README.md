@@ -169,10 +169,14 @@ Simple Voice Chat offers a flexible configuration system. Settings can be manage
 *   **Backend Selection:** Choose between `classic`, `openai`, or `gemini` backends using the `--backend` command-line argument. (Note: This specific option is primarily controlled via the CLI argument; most other options can also be set via environment variables as detailed in `--help`.)
 *   **API Keys:** Provide necessary API keys for services like OpenAI, Gemini, or other LLM/STT/TTS providers (e.g., set `OPENAI_API_KEY="..."`, `GEMINI_API_KEY="..."`, `LLM_API_KEY="..."` in your `.env` file).
 *   **Service Endpoints (Classic Backend):** Configure host and port for your STT, LLM, and TTS services (e.g., `STT_HOST="localhost"`, `LLM_PORT="8080"`).
-*   **Models and Voices:** Specify default models and voices (e.g., `LLM_MODEL="gpt-4o"`, `TTS_VOICE="alloy"`, `OPENAI_REALTIME_MODEL="gpt-4o-mini-realtime-preview"`, `GEMINI_VOICE="Puck"`).
+*   **Models and Voices:**
+    *   **Classic Backend:** `LLM_MODEL`, `TTS_VOICE`.
+    *   **OpenAI Backend:** `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`.
+    *   **Gemini Backend:** `GEMINI_MODEL`, `GEMINI_VOICE`.
 *   **STT Behavior:** Adjust STT language (e.g., `STT_LANGUAGE="en"`). For the `classic` backend, configure confidence thresholds (e.g., `STT_NO_SPEECH_PROB_THRESHOLD="0.6"`, `STT_AVG_LOGPROB_THRESHOLD="-0.7"`).
 *   **TTS Behavior (Classic Backend):** Control TTS speed (e.g., `TTS_SPEED="1.1"`) and specify acronyms to preserve (e.g., `TTS_ACRONYM_PRESERVE_LIST="AI,TTS,ASAP"`).
-*   **Application Behavior:** Set the `SYSTEM_MESSAGE="You are a concise assistant."`, configure the application port (e.g., `APP_PORT="7860"`), and choose to launch in browser mode (using the `--browser` flag).
+*   **Gemini Backend Specifics:** Configure context window compression with `GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD`.
+*   **Application Behavior:** Set the `SYSTEM_MESSAGE="You are a concise assistant."`, configure the application port (e.g., `APP_PORT="7860"`), choose to launch in browser mode (using the `--browser` flag), and disable client-disconnect-based server shutdown with `DISABLE_HEARTBEAT="True"`.
 
 **Example `.env` file:**
 
@@ -183,6 +187,7 @@ Simple Voice Chat offers a flexible configuration system. Settings can be manage
 # APP_PORT=7861
 SYSTEM_MESSAGE="You are a helpful and friendly voice assistant."
 STT_LANGUAGE="en" # Language for Speech-to-Text (e.g., "en", "es", "fr"). Affects all backends.
+# DISABLE_HEARTBEAT="False" # Set to "True" to prevent server shutdown on client disconnect.
 
 # ---- Backend Specific Configuration ----
 # Choose ONE backend via the --backend CLI option ("classic", "openai", or "gemini").
@@ -197,8 +202,9 @@ OPENAI_REALTIME_VOICE="alloy"                     # e.g., alloy, echo, fable, on
 # ======= Gemini Backend =======
 # Used if --backend=gemini
 # GEMINI_API_KEY="yourGoogleGeminiApiKeyGoesHere"
-# GEMINI_MODEL="gemini-2.0-flash-exp" # Currently only "gemini-2.0-flash-exp" alpha
-# GEMINI_VOICE="Puck"                 # e.g., Puck, Charon, Kore, Fenrir, Aoede
+# GEMINI_MODEL="gemini-2.0-flash-live-001" # e.g., gemini-2.0-flash-live-001
+# GEMINI_VOICE="Puck"                      # e.g., Puck, Charon, Kore, Fenrir, Aoede
+# GEMINI_CONTEXT_WINDOW_COMPRESSION_THRESHOLD="16000" # Default threshold for sliding window context compression
 
 # ======= Classic Backend =======
 # Used if --backend=classic (or if no --backend is specified, as it's the default)

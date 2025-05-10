@@ -805,9 +805,11 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
             "context_window_compression": ContextWindowCompressionConfig(
                 sliding_window=SlidingWindow(), # SlidingWindow takes no arguments
                 trigger_tokens=self.settings.gemini_context_window_compression_threshold # Set threshold here
-            )
+            ),
+            "output_audio_transcription": {} # Enable transcription of model's audio output
         }
         logger.info(f"GeminiRealtimeHandler: Context window compression enabled with trigger_token_count={self.settings.gemini_context_window_compression_threshold}.")
+        logger.info("GeminiRealtimeHandler: Output audio transcription enabled.")
 
         if self.settings.system_message:
             logger.info(f"GeminiRealtimeHandler: Preparing system message for LiveConnectConfig: \"{self.settings.system_message[:100]}...\"")
@@ -908,6 +910,15 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
                                     if audio_data_np.ndim == 1:
                                         audio_data_np = audio_data_np.reshape(1, -1) # Ensure 2D for FastRTC
                                     await self.output_queue.put((GEMINI_REALTIME_OUTPUT_SAMPLE_RATE, audio_data_np))
+
+                        # Process output_audio_transcription if available
+                        output_transcription_obj = getattr(live_event_content, 'output_transcription', None)
+                        if output_transcription_obj and output_transcription_obj.text:
+                            logger.debug(f"GeminiRealtime: Received output audio transcription: '{output_transcription_obj.text}'")
+                            self._current_output_text_parts.append(output_transcription_obj.text)
+                            # Note: This text is appended to _current_output_text_parts and will be part of the
+                            # final assistant message when the turn completes.
+
 
                         # Process separate audio_response (often for partial audio chunks or alternative audio stream)
                         audio_response_obj = getattr(live_event_content, 'audio_response', None)

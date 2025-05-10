@@ -1159,11 +1159,11 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
         logger.debug("OpenAIRealtimeHandler: Turn usage state reset.")
 
     async def start_up(self):
-        from openai.types.beta.realtime.sessions import (
-            SessionUpdateParams, # Added import
-            TurnDetectionServerVad,
-            InputAudioTranscriptionWhisper
-        )
+        # Removed import: from openai.types.beta.realtime.sessions import (
+        #     SessionUpdateParams,
+        #     TurnDetectionServerVad,
+        #     InputAudioTranscriptionWhisper
+        # )
         logger.info("OpenAIRealtimeHandler: Starting up and connecting to OpenAI...")
         if not self.settings.openai_api_key:
             logger.error("OpenAIRealtimeHandler: OpenAI API Key not configured. Cannot connect.")
@@ -1183,22 +1183,22 @@ class OpenAIRealtimeHandler(AsyncStreamHandler):
             logger.info(f"OpenAIRealtimeHandler: Output voice updated to: {self.current_openai_voice}")
 
         # --- Prepare session parameters using typed objects ---
-        turn_detection_config = TurnDetectionServerVad()
+        # turn_detection_config = TurnDetectionServerVad() # Replaced with dict
 
         transcription_model_args: Dict[str, Any] = {"model": "whisper-1"}
         if self.current_stt_language:
             transcription_model_args["language"] = self.current_stt_language
-        input_audio_transcription_config = InputAudioTranscriptionWhisper(**transcription_model_args)
+        # input_audio_transcription_config = InputAudioTranscriptionWhisper(**transcription_model_args) # Replaced with dict
         
         # Parameters for session.update()
-        # Constructing SessionUpdateParams directly for type safety
-        session_params = SessionUpdateParams(
-            turn_detection=turn_detection_config,
-            input_audio_transcription=input_audio_transcription_config,
+        # Constructing session_params as a dictionary, similar to the reference.
+        session_params = {
+            "turn_detection": {"type": "server_vad"},
+            "input_audio_transcription": transcription_model_args,
             # "output_audio_generation" and voice selection removed as it causes an error
             # with the default OpenAI Realtime model (e.g., gpt-4o-mini-realtime-preview-2024-12-17).
             # The API will likely use a default voice or one associated with the account/model.
-        )
+        }
         # --- End session parameters preparation ---
         
         if self.current_openai_voice:

@@ -31,6 +31,8 @@ from google.genai.types import (
     PrebuiltVoiceConfig,
     SpeechConfig as GenaiSpeechConfig, # Rename to avoid conflict with our SpeechConfig if any
     VoiceConfig as GenaiVoiceConfig,   # Rename
+    ContextWindowCompressionConfig,    # Added for context window compression
+    SlidingWindow,                     # Added for context window compression
     # TODO: If specific RecognitionConfig for STT language is found for google-generativeai, import it.
     # from google.ai import generativelanguage as glm -> this requires google-cloud-aiplatform
 )
@@ -799,7 +801,11 @@ class GeminiRealtimeHandler(AsyncStreamHandler):
         live_connect_config_args: Dict[str, Any] = {
             "response_modalities": ["AUDIO"],
             "speech_config": GenaiSpeechConfig(**speech_config_params),
+            "context_window_compression": ContextWindowCompressionConfig(
+                sliding_window=SlidingWindow(tokens_threshold=16000) # Enable sliding window compression
+            )
         }
+        logger.info("GeminiRealtimeHandler: Context window compression enabled with 16000 token threshold.")
 
         if self.settings.system_message:
             logger.info(f"GeminiRealtimeHandler: Preparing system message for LiveConnectConfig: \"{self.settings.system_message[:100]}...\"")

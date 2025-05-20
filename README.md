@@ -2,7 +2,7 @@
 
 This project provides a flexible voice chat interface that connects to various Speech-to-Text (STT), Large Language Model (LLM), and Text-to-Speech (TTS) services.
 
-![Screenshot](screenshot.png)
+![Screenshot](https://github.com/thiswillbeyourgithub/simple_voice_chat/blob/main/screenshot.png?raw=true)
 
 **Acknowledgement:** This project heavily relies on the fantastic [fastrtc](https://github.com/gradio-app/fastrtc) library, which simplifies real-time audio streaming over WebRTC and provided crucial examples for setting up the various supported backends, making this application possible.
 

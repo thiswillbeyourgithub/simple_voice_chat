@@ -17,7 +17,7 @@ def setup_logging(
         log_file_path: The full path to the log file. If None, file logging is disabled.
         verbose_mode: If True, enables more detailed console logging and backtrace/diagnose.
     """
-    logger.remove()  # Remove default handler
+    # logger.remove()  # Remove default handler
 
     # Define console format based on level (with color)
     log_format_debug_console = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"

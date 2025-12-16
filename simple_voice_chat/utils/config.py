@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI # For client type hints
 
 # --- Application Constants ---
-APP_VERSION = "4.2.2"
+APP_VERSION = "4.2.3"
 OPENAI_TTS_PRICING = {
     # price per 1M token
     "tts-1": 15.00,

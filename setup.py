@@ -21,7 +21,6 @@ setuptools.setup(
     long_description=_read_readme(),
     long_description_content_type="text/markdown",
     url="https://github.com/thiswillbeyourgithub/simple_voice_chat",
-    license="GPLv3",
     packages=setuptools.find_packages(
         exclude=["*.tests", "*.tests.*", "tests.*", "tests"] # Exclude test directories if any
     ),
@@ -78,8 +77,6 @@ setuptools.setup(
         "Topic :: Communications :: Chat",
         "Topic :: Multimedia :: Sound/Audio :: Speech",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
-        # Add your license classifier here, e.g.:
-        # "License :: OSI Approved :: MIT License",
     ],
 
     keywords="voice chat, llm, stt, tts, ai, chatbot, fastrtc, openai",
